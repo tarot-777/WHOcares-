@@ -1,0 +1,512 @@
+#!/nix/store/gik3rh1vz2jlgnifb9dh6vc6sxwwz9jj-bash-5.3p9/bin/bash
+set -eu
+set -o pipefail
+
+cd $HOME
+
+export PATH="/nix/store/cgjr3kj3hs7ngznyws5qfg16c8scpys0-bash-interactive-5.3p9/bin:/nix/store/9ypz3flqsrl5xl495mm8h645gadjsxi1-coreutils-9.11/bin:/nix/store/ww555mznia5v7sz2w85lblg4amvhkhv1-diffutils-3.12/bin:/nix/store/c1cjgg6p8m8fssivzrc2p13mwwml3p3v-findutils-4.10.0/bin:/nix/store/rb8rna9gkhs0ybl6z2p904myslh8llg8-gettext-1.0/bin:/nix/store/gn94gpcp5q08x4v6g8mvw8v4r65rcjzk-gnugrep-3.12/bin:/nix/store/kgxafhycw2kybbqih759ykc2043qyi5j-gnused-4.9/bin:/nix/store/s04d6wm3kqjdgr7zdhlk214f6a2291ks-jq-1.8.1-bin/bin:/nix/store/wl2nw5l4x4dg6kclbgpq7v9212i1s6cy-ncurses-6.6/bin:$(/nix/store/9ypz3flqsrl5xl495mm8h645gadjsxi1-coreutils-9.11/bin/dirname $(/nix/store/9ypz3flqsrl5xl495mm8h645gadjsxi1-coreutils-9.11/bin/readlink -m $(type -p nix-env)))"
+export TEXTDOMAIN=hm-modules
+export TEXTDOMAINDIR=/nix/store/2zwn3zws4vhd8lhppvv6vw2g164hzqfq-hm-modules-messages
+source /nix/store/zhrjg6wxrxmdlpn6iapzpp2z2vylpvw5-home-manager.sh
+
+
+# The driver version indicates the behavior expected by the caller of
+# this script.
+#
+# - 0 : legacy behavior
+# - 1 : the script will not attempt to update the Home Manager Nix profile.
+hmDriverVersion=0
+
+while (( $# > 0 )); do
+  opt="$1"
+  shift
+
+  case $opt in
+    --driver-version)
+      if (( $# == 0 )); then
+        errorEcho "$0: no driver version specified" >&2
+        exit 1
+      elif (( 0 <= $1 && $1 <= 1 )); then
+        hmDriverVersion=$1
+      else
+        errorEcho "$0: unexpected driver version $1" >&2
+        exit 1
+      fi
+      shift
+      ;;
+    *)
+      _iError "%s: unknown option '%s'" "$0" "$opt" >&2
+      exit 1
+      ;;
+  esac
+done
+unset opt
+
+# Moves the existing profile from /nix or $XDG_STATE_HOME/home-manager to
+# $XDG_STATE_HOME/nix to match changed behavior in Nix 2.14. See
+# https://github.com/NixOS/nix/pull/5226.
+function migrateProfile() {
+    declare -r stateHome="${XDG_STATE_HOME:-$HOME/.local/state}"
+    declare -r userNixStateDir="$stateHome/nix"
+    declare -r hmStateDir="$stateHome/home-manager"
+
+    declare -r globalNixStateDir="${NIX_STATE_DIR:-/nix/var/nix}"
+    declare -r globalProfilesDir="$globalNixStateDir/profiles/per-user/$USER"
+
+    if [[ -e $globalProfilesDir/home-manager ]]; then
+        declare -r oldProfilesDir="$globalProfilesDir"
+    elif [[ -e $hmStateDir/profiles/home-manager ]]; then
+        declare -r oldProfilesDir="$hmStateDir/profiles"
+    fi
+
+    declare -r newProfilesDir="$userNixStateDir/profiles"
+
+    if [[ -v oldProfilesDir && -e $newProfilesDir ]]; then
+        if [[ ! -e $newProfilesDir/home-manager ]]; then
+            _i 'Migrating profile from %s to %s' "$oldProfilesDir" "$newProfilesDir"
+            for p in "$oldProfilesDir"/home-manager-*; do
+                declare name="${p##*/}"
+                nix-store --realise "$p" --add-root "$newProfilesDir/$name" > /dev/null
+            done
+            cp -P "$oldProfilesDir/home-manager" "$newProfilesDir"
+        fi
+
+        rm "$oldProfilesDir/home-manager" "$oldProfilesDir"/home-manager-*
+    fi
+}
+
+function setupVars() {
+    declare -r stateHome="${XDG_STATE_HOME:-$HOME/.local/state}"
+    declare -r userNixStateDir="$stateHome/nix"
+    declare -gr hmStatePath="$stateHome/home-manager"
+    declare -r hmGcrootsDir="$hmStatePath/gcroots"
+
+    declare -r globalNixStateDir="${NIX_STATE_DIR:-/nix/var/nix}"
+    declare -r globalProfilesDir="$globalNixStateDir/profiles/per-user/$USER"
+    declare -r globalGcrootsDir="$globalNixStateDir/gcroots/per-user/$USER"
+
+    # If the user Nix profiles path exists, then place the HM profile there.
+    # Otherwise, if the global Nix per-user state directory exists then use
+    # that. If neither exists, then we give up.
+    #
+    # shellcheck disable=2174
+    if [[ -d $userNixStateDir/profiles ]]; then
+        declare -r profilesDir="$userNixStateDir/profiles"
+    elif [[ -d $globalProfilesDir ]]; then
+        declare -r profilesDir="$globalProfilesDir"
+    else
+        _iError 'Could not find suitable profile directory, tried %s and %s' \
+                "$userNixStateDir/profiles" "$globalProfilesDir" >&2
+        exit 1
+    fi
+
+    declare -gr hmDataPath="${XDG_DATA_HOME:-$HOME/.local/share}/home-manager"
+    declare -gr genProfilePath="$profilesDir/home-manager"
+    declare -gr newGenPath="/nix/store/mk4m154813n46l5dj215b9855fj7lwn1-home-manager-generation";
+    declare -gr newGenGcPath="$hmGcrootsDir/new-home"
+    declare -gr currentGenGcPath="$hmGcrootsDir/current-home"
+    declare -gr legacyGenGcPath="$globalGcrootsDir/current-home"
+
+    if [[ -e $currentGenGcPath ]] ; then
+        declare -g oldGenPath
+        oldGenPath="$(readlink -e "$currentGenGcPath")"
+    fi
+}
+
+# Helper used to list content of a `nix profile` profile.
+function nixProfileList() {
+    # We attempt to use `--json` first (added in Nix 2.17). Otherwise attempt to
+    # parse the legacy output format.
+    {
+        nix profile list --json 2>/dev/null \
+            | jq -r --arg name "$1" '.elements[].storePaths[] | select(endswith($name))'
+    } || {
+        nix profile list \
+            | { grep "$1\$" || test $? = 1; } \
+            | cut -d ' ' -f 4
+    }
+}
+
+# Helper used to remove a package from a Nix profile. Supports both `nix-env`
+# and `nix profile`.
+function nixProfileRemove() {
+    # We don't use `cfg.profileDirectory` here because it defaults to
+    # `/etc/profiles/per-user/<user>` which is constructed by NixOS or
+    # nix-darwin and won't require uninstalling `home-manager-path`.
+    if  [[ -e $HOME/.nix-profile/manifest.json \
+        || -e ${XDG_STATE_HOME:-$HOME/.local/state}/nix/profile/manifest.json ]] ; then
+        nixProfileList "$1" | xargs -rt $DRY_RUN_CMD nix profile remove $VERBOSE_ARG
+    else
+        if nix-env -q | grep -q "^$1$"; then
+            run --quiet nix-env -e "$1"
+        fi
+    fi
+}
+
+function checkStringEq() {
+    local name="$1"
+    local actual="$2"
+    local expected="$3"
+
+    if [[ "$actual" != "$expected" ]]; then
+        # translators: For example: HOME is "/home/foo", expected "/home/bar"
+        _iError '%s is "%s", expected "%s"' "$name" "$actual" "$expected"
+        exit 1
+    fi
+}
+
+function checkPathEq() {
+    local name="$1"
+    local actual="$2"
+    local expected="$3"
+
+    if ! [[ "$actual" -ef "$expected" ]]; then
+        # translators: For example: HOME is "/home/foo", expected "/home/bar"
+        _iError '%s is "%s", expected "%s"' "$name" "$actual" "$expected"
+        exit 1
+    fi
+}
+
+# Note, the VERBOSE_ECHO variable is deprecated and should not be used inside
+# the Home Manager project. It is provided here for backwards compatibility.
+if [[ -v VERBOSE ]]; then
+    export VERBOSE_ECHO=echo
+    export VERBOSE_ARG="--verbose"
+    export VERBOSE_RUN=""
+else
+    export VERBOSE_ECHO=true
+    export VERBOSE_ARG=""
+    export VERBOSE_RUN=true
+fi
+
+_i "Starting Home Manager activation"
+
+# Verify that we can connect to the Nix store and/or daemon. This will
+# also create the necessary directories in profiles and gcroots.
+_iVerbose "Sanity checking Nix"
+nix-build --quiet --expr '{}' --no-out-link
+
+# Also make sure that the Nix profiles path is created.
+nix-env -q > /dev/null 2>&1 || true
+
+migrateProfile
+setupVars
+
+# Note, the DRY_RUN_CMD and DRY_RUN_NULL variables are deprecated and should not
+# be used inside the Home Manager project. They are provided here for backwards
+# compatibility.
+if [[ -v DRY_RUN ]] ; then
+    _i "This is a dry run"
+    export DRY_RUN_CMD=echo
+    export DRY_RUN_NULL=/dev/stdout
+else
+    _iVerbose "This is a live run"
+    export DRY_RUN_CMD=""
+    export DRY_RUN_NULL=/dev/null
+fi
+
+if [[ -v VERBOSE ]]; then
+    _i 'Using Nix version: %s' "$(nix-env --version)"
+fi
+
+_iVerbose "Activation variables:"
+if [[ -v oldGenPath ]] ; then
+    verboseEcho "  oldGenPath=$oldGenPath"
+else
+    verboseEcho "  oldGenPath undefined (first run?)"
+fi
+verboseEcho "  newGenPath=$newGenPath"
+verboseEcho "  genProfilePath=$genProfilePath"
+verboseEcho "  newGenGcPath=$newGenGcPath"
+verboseEcho "  currentGenGcPath=$currentGenGcPath"
+verboseEcho "  legacyGenGcPath=$legacyGenGcPath"
+
+
+if [[ ! -v SKIP_SANITY_CHECKS ]]; then
+  checkStringEq USER "$USER" malachi
+  checkPathEq HOME "$HOME" /home/malachi
+  
+fi
+
+# Create a temporary GC root to prevent collection during activation.
+trap 'run rm -f $VERBOSE_ARG "$newGenGcPath"' EXIT
+run --silence nix-store --realise "$newGenPath" --add-root "$newGenGcPath"
+
+
+_iNote "Activating %s" "checkFilesChanged"
+function _cmp() {
+  if [[ -d $1 && -d $2 ]]; then
+    diff -rq "$1" "$2" &> /dev/null
+  else
+    cmp --quiet "$1" "$2"
+  fi
+}
+declare -A changedFiles
+_cmp /nix/store/4qnns3zc2r1acvyqarl2sydj5rqy87xl-hm_homemalachi.Xresources /home/malachi/.Xresources \
+  && changedFiles[.Xresources]=0 \
+  || changedFiles[.Xresources]=1
+_cmp /nix/store/6hgs51bx1w2mdim8nfdbv3x3sqdhhfpi-hm_makoconfig /home/malachi/.config/mako/config \
+  && changedFiles[.config/mako/config]=0 \
+  || changedFiles[.config/mako/config]=1
+_cmp /nix/store/88cv8yqm1njivlq2k1m2yvr6f39mpiic-hm_kittykitty.conf /home/malachi/.config/kitty/kitty.conf \
+  && changedFiles[.config/kitty/kitty.conf]=0 \
+  || changedFiles[.config/kitty/kitty.conf]=1
+_cmp /nix/store/lrb20rs70pysffv5s0p6nh1hbw3h437j-catppuccin-mocha-gnome-shell-theme/share/gnome-shell/gnome-shell.css /home/malachi/.local/share/themes/Stylix/gnome-shell/gnome-shell.css \
+  && changedFiles[.local/share/themes/Stylix/gnome-shell/gnome-shell.css]=0 \
+  || changedFiles[.local/share/themes/Stylix/gnome-shell/gnome-shell.css]=1
+unset -f _cmp
+
+
+_iNote "Activating %s" "checkKittyTheme"
+if [[ ! -f "/nix/store/l3c4sx1rbgdw1irshh2f334jqj7c4g3a-kitty-themes-0-unstable-2026-03-31/share/kitty-themes/themes/Catppuccin-Mocha.conf" ]]; then
+  errorEcho "kitty-themes does not contain the theme file /nix/store/l3c4sx1rbgdw1irshh2f334jqj7c4g3a-kitty-themes-0-unstable-2026-03-31/share/kitty-themes/themes/Catppuccin-Mocha.conf!"
+  exit 1
+fi
+
+
+
+
+_iNote "Activating %s" "checkLinkTargets"
+function checkNewGenCollision() {
+  local newGenFiles
+  newGenFiles="$(readlink -e "$newGenPath/home-files")"
+  find "$newGenFiles" \( -type f -or -type l \) \
+      -exec bash /nix/store/jpdj13qbiqgszx2i3ryr7n1sckvqh9mm-check-link-targets.sh "$newGenFiles" {} +
+}
+
+checkNewGenCollision || exit 1
+
+
+_iNote "Activating %s" "writeBoundary"
+if (( $hmDriverVersion < 1 )); then
+  if [[ ! -v oldGenPath || "$oldGenPath" != "$newGenPath" ]] ; then
+    _i "Creating new profile generation"
+    run nix-env $VERBOSE_ARG --profile "$genProfilePath" --set "$newGenPath"
+  else
+    _i "No change so reusing latest profile generation"
+  fi
+fi
+
+
+_iNote "Activating %s" "createGpgHomedir"
+run mkdir -m700 -p $VERBOSE_ARG /home/malachi/.gnupg
+
+
+_iNote "Activating %s" "linkGeneration"
+function linkNewGen() {
+  _i "Creating home file links in %s" "$HOME"
+
+  local newGenFiles
+  newGenFiles="$(readlink -e "$newGenPath/home-files")"
+  find "$newGenFiles" \( -type f -or -type l \) \
+    -exec bash /nix/store/80xx1fv3v12q5qj4nzjxzazdw1i5vpbv-link "$newGenFiles" {} +
+}
+
+function cleanOldGen() {
+  if [[ ! -v oldGenPath || ! -e "$oldGenPath/home-files" ]] ; then
+    return
+  fi
+
+  _i "Cleaning up orphan links from %s" "$HOME"
+
+  local newGenFiles oldGenFiles
+  newGenFiles="$(readlink -e "$newGenPath/home-files")"
+  oldGenFiles="$(readlink -e "$oldGenPath/home-files")"
+
+  # Apply the cleanup script on each leaf in the old
+  # generation. The find command below will print the
+  # relative path of the entry.
+  find "$oldGenFiles" '(' -type f -or -type l ')' -printf '%P\0' \
+    | xargs -0 bash /nix/store/jm0kacyw04fsi83459cgkvlz7zsbl06l-cleanup "$newGenFiles"
+}
+
+cleanOldGen
+linkNewGen
+
+
+_iNote "Activating %s" "batCache"
+(
+  export XDG_CACHE_HOME=/home/malachi/.cache
+  verboseEcho "Rebuilding bat theme cache"
+  cd "/nix/store/4d0ix5djms3n2jnjdc58l916cwack1rp-empty-directory"
+  run /nix/store/ryfh6hspp28libl3mlw5sv64giq5iasi-bat-0.26.1/bin/bat cache --build
+)
+
+
+_iNote "Activating %s" "buildNixIndex"
+INDEX="$HOME/.cache/nix-index/files"
+if [[ ! -f "$INDEX" ]]; then
+  echo "[activation] Building nix-index database (first run, may take a minute)..."
+  $DRY_RUN_CMD /nix/store/2zvv3z70kfpz4k06jrg4jw7vh39zsip5-nix-index-0.1.10/bin/nix-index 2>/dev/null || echo "  (skipped — run: nix-index)"
+fi
+
+
+_iNote "Activating %s" "checkExistingGpuDrivers"
+existing=$(readlink /run/opengl-driver || true)
+new=/nix/store/8ljw1xj08kcmsbx1a5dlfqh42y9mzj42-non-nixos-gpu
+verboseEcho Existing drivers: ${existing}
+verboseEcho New drivers: ${new}
+if [[ -z "${existing}" ]] ; then
+  warnEcho "This non-NixOS system is not yet set up to use the GPU"
+  warnEcho "with Nix packages. To set up GPU drivers, run"
+  warnEcho "  sudo /nix/store/683nm8f1llzag0a64lhxac0bci4mixzg-non-nixos-gpu/bin/non-nixos-gpu-setup"
+elif [[ "${existing}" != "${new}" ]] ; then
+  warnEcho "GPU drivers require an update, run"
+  warnEcho "  sudo /nix/store/683nm8f1llzag0a64lhxac0bci4mixzg-non-nixos-gpu/bin/non-nixos-gpu-setup"
+fi
+
+
+_iNote "Activating %s" "createXdgUserDirectories"
+[[ -L "/home/malachi/desktop" ]] || run mkdir -p $VERBOSE_ARG "/home/malachi/desktop"
+[[ -L "/home/malachi/documents" ]] || run mkdir -p $VERBOSE_ARG "/home/malachi/documents"
+[[ -L "/home/malachi/downloads" ]] || run mkdir -p $VERBOSE_ARG "/home/malachi/downloads"
+[[ -L "/home/malachi/music" ]] || run mkdir -p $VERBOSE_ARG "/home/malachi/music"
+[[ -L "/home/malachi/pictures" ]] || run mkdir -p $VERBOSE_ARG "/home/malachi/pictures"
+[[ -L "/home/malachi/Projects" ]] || run mkdir -p $VERBOSE_ARG "/home/malachi/Projects"
+[[ -L "/home/malachi/public" ]] || run mkdir -p $VERBOSE_ARG "/home/malachi/public"
+[[ -L "/home/malachi/templates" ]] || run mkdir -p $VERBOSE_ARG "/home/malachi/templates"
+[[ -L "/home/malachi/videos" ]] || run mkdir -p $VERBOSE_ARG "/home/malachi/videos"
+
+_iNote "Activating %s" "installPackages"
+function nixReplaceProfile() {
+  local oldNix="$(command -v nix)"
+
+  nixProfileRemove 'home-manager-path'
+
+  run $oldNix profile install $1
+}
+
+if [[ -e /home/malachi/.nix-profile/manifest.json ]] ; then
+  INSTALL_CMD="nix profile install"
+  INSTALL_CMD_ACTUAL="nixReplaceProfile"
+  LIST_CMD="nix profile list"
+  REMOVE_CMD_SYNTAX='nix profile remove {number | store path}'
+else
+  INSTALL_CMD="nix-env -i"
+  INSTALL_CMD_ACTUAL="run nix-env -i"
+  LIST_CMD="nix-env -q"
+  REMOVE_CMD_SYNTAX='nix-env -e {package name}'
+fi
+
+if ! $INSTALL_CMD_ACTUAL /nix/store/9gc0bwjkyfmxwl9qg8gyz77cg6p7i6va-home-manager-path ; then
+  echo
+  _iError $'Oops, Nix failed to install your new Home Manager profile!\n\nPerhaps there is a conflict with a package that was installed using\n"%s"? Try running\n\n    %s\n\nand if there is a conflicting package you can remove it with\n\n    %s\n\nThen try activating your Home Manager configuration again.' "$INSTALL_CMD" "$LIST_CMD" "$REMOVE_CMD_SYNTAX"
+  exit 1
+fi
+unset -f nixReplaceProfile
+unset INSTALL_CMD INSTALL_CMD_ACTUAL LIST_CMD REMOVE_CMD_SYNTAX
+
+
+_iNote "Activating %s" "dconfSettings"
+if [[ -v DBUS_SESSION_BUS_ADDRESS ]]; then
+  export DCONF_DBUS_RUN_SESSION=""
+else
+  export DCONF_DBUS_RUN_SESSION="/nix/store/ai8mmqghspvnhv2jz12pfg6b6dqmg3b3-dbus-1.16.2/bin/dbus-run-session --dbus-daemon=/nix/store/ai8mmqghspvnhv2jz12pfg6b6dqmg3b3-dbus-1.16.2/bin/dbus-daemon "
+fi
+
+if [[ -v oldGenPath ]]; then
+  /nix/store/d3qwjxhhs2imsxxxrmibmd6dk3naizgz-dconf-cleanup \
+    "$oldGenPath/state/dconf-keys.json" \
+    "$newGenPath/state/dconf-keys.json"
+fi
+
+run $DCONF_DBUS_RUN_SESSION /nix/store/f0xjii7970sxgfz2qca66v530j99xwgv-dconf-0.49.0/bin/dconf load / < /nix/store/v9ga04bgkxfm7aw9id3fdhxg523fkj75-hm-dconf.ini
+
+unset DCONF_DBUS_RUN_SESSION
+
+
+_iNote "Activating %s" "onFilesChange"
+if (( ${changedFiles[.Xresources]} == 1 )); then
+  if [[ -v DRY_RUN || -v VERBOSE ]]; then
+    echo "Running onChange hook for" .Xresources
+  fi
+  if [[ ! -v DRY_RUN ]]; then
+    if [[ -v DISPLAY ]]; then
+  /nix/store/vs1b471vq9dmrp8chyirr38cvygzqvba-xrdb-1.2.2/bin/xrdb -merge /home/malachi/.Xresources
+fi
+
+  fi
+fi
+if (( ${changedFiles[.config/mako/config]} == 1 )); then
+  if [[ -v DRY_RUN || -v VERBOSE ]]; then
+    echo "Running onChange hook for" .config/mako/config
+  fi
+  if [[ ! -v DRY_RUN ]]; then
+    /nix/store/48v68yyksv5vqa71jkmjw3w5jvzdwxx4-mako-1.11.0/bin/makoctl reload || true
+  fi
+fi
+if (( ${changedFiles[.config/kitty/kitty.conf]} == 1 )); then
+  if [[ -v DRY_RUN || -v VERBOSE ]]; then
+    echo "Running onChange hook for" .config/kitty/kitty.conf
+  fi
+  if [[ ! -v DRY_RUN ]]; then
+    /nix/store/5cfwmqmymsqynbyqq0vkbpf6914550x7-procps-4.0.6/bin/pkill -USR1 -u $USER kitty || true
+
+  fi
+fi
+if (( ${changedFiles[.local/share/themes/Stylix/gnome-shell/gnome-shell.css]} == 1 )); then
+  if [[ -v DRY_RUN || -v VERBOSE ]]; then
+    echo "Running onChange hook for" .local/share/themes/Stylix/gnome-shell/gnome-shell.css
+  fi
+  if [[ ! -v DRY_RUN ]]; then
+    /nix/store/dngi7jfsi4r64f6qj20i895xxg3r6i2w-stylix-activate-gnome/bin/stylix-activate-gnome reload
+  fi
+fi
+
+
+_iNote "Activating %s" "reloadSystemd"
+systemdStatus=$(env XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" \
+    PATH="/nix/store/a8avqfxd649rfgfpqldja6v38ljb8fj5-systemd-260.1/bin:$PATH" \
+ systemctl --user is-system-running 2>&1 || true)
+
+if [[ $systemdStatus == 'running' || $systemdStatus == 'degraded' ]]; then
+  if [[ $systemdStatus == 'degraded' ]]; then
+    warnEcho "The user systemd session is degraded:"
+    env XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" \
+    PATH="/nix/store/a8avqfxd649rfgfpqldja6v38ljb8fj5-systemd-260.1/bin:$PATH" \
+ systemctl --user --no-pager --state=failed
+    warnEcho "Attempting to reload services anyway..."
+  fi
+
+  if [[ -v oldGenPath ]]; then
+    oldUnitsDir="$oldGenPath/home-files/.config/systemd/user"
+    if [[ ! -e $oldUnitsDir ]]; then
+      oldUnitsDir=
+    fi
+  fi
+
+  newUnitsDir="$newGenPath/home-files/.config/systemd/user"
+  if [[ ! -e $newUnitsDir ]]; then
+    newUnitsDir=/nix/store/4d0ix5djms3n2jnjdc58l916cwack1rp-empty-directory
+  fi
+
+  env XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" \
+    PATH="/nix/store/a8avqfxd649rfgfpqldja6v38ljb8fj5-systemd-260.1/bin:$PATH" \
+ /nix/store/9i4pmajr0h52qhcpd8f89px85fbmx1cp-sd-switch-0.6.3/bin/sd-switch \
+  ${DRY_RUN:+--dry-run} $VERBOSE_ARG  \
+  ${oldUnitsDir:+--old-units $oldUnitsDir} \
+  --new-units "$newUnitsDir"
+
+
+  unset newUnitsDir oldUnitsDir
+else
+  echo "User systemd daemon not running. Skipping reload."
+fi
+
+unset systemdStatus
+
+
+_iNote "Activating %s" "stylixLookAndFeel"
+run /nix/store/amph21gdys79010p4ixpwqc2ph100baq-stylix-kde-apply-plasma-theme/bin/stylix-kde-apply-plasma-theme || verboseEcho \
+  "Stylix KDE theme setting failed. This only works in a running Plasma session."
+
+
+
+# Create the "current generation" GC root.
+run --silence nix-store --realise "$newGenPath" --add-root "$currentGenGcPath"
+
+if [[ -e "$legacyGenGcPath" ]]; then
+  run rm $VERBOSE_ARG "$legacyGenGcPath"
+fi
+
+
