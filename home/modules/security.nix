@@ -95,7 +95,7 @@ with lib; let
     "sleuthkit"
     "hashdeep"
     "lynis"
-    "chkrootkit"
+    # "chkrootkit" removed (archived upstream) — filter by `present` will ignore missing pkgs
     "rkhunter"
     "rustscan"
     "testssl"
