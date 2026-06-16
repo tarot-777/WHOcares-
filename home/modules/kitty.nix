@@ -89,7 +89,6 @@
     '';
   };
 in {
-  catppuccin.kitty.enable = false;
 
   programs.kitty = {
     enable = true;

@@ -22,15 +22,19 @@
   programs.zsh = {
     enable = true;
     # XDG-compliant: ~/.config/zsh  (relative to homeDirectory)
-    # Absolute path as required by current HM (relative paths deprecated)
-    dotDir = "${config.xdg.configHome}/zsh";
+    # Use explicit literal path to avoid evaluation-time ('$') issues
+    dotDir = "/home/malachi/.config/zsh";
 
     # Home Manager loads completion before the declarative plugin set.
     enableCompletion = true;
     completionInit = ''
-      autoload -Uz compinit
+      autoload -Uz compinit compaudit
       mkdir -p "''${XDG_CACHE_HOME:-''${HOME}/.cache}/zsh"
       ZSH_COMPDUMP="''${XDG_CACHE_HOME:-''${HOME}/.cache}/zsh/zcompdump"
+      # Fix insecure completion files non-interactively to avoid compinit prompts
+      if compaudit >/dev/null 2>&1; then
+        compaudit 2>/dev/null | xargs -r chmod g-w,o-w || true
+      fi
       compinit -d "''${ZSH_COMPDUMP}"
       _comp_options+=(globdots)
     '';

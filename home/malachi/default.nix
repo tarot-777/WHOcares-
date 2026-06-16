@@ -44,6 +44,12 @@
     shell.enable = true;
     externalRepos.enable = true;
 
+    # Enable defensive security features and heavy tools (aircrack, hcxdumptool, kismet)
+    security = {
+      enable = true;
+      deep = { enable = true; };
+    };
+
     llmOrchestrator = {
       enable = true;
       browser = "brave";
@@ -331,25 +337,8 @@
   # autoEnable = true applies Catppuccin to every supported program that is
   # also enabled. Per-program overrides below disable duplicates managed by
   # Stylix to avoid conflicting theme injections.
-  catppuccin = {
-    enable = true;
-    flavor = "mocha";
-    accent = "pink";
-    autoEnable = true;
+  # Catppuccin theming block removed to avoid missing flake/module during evaluation
 
-    # Programs whose theming is handed off to Stylix:
-    bat.enable = true; # Stylix target bat.enable = false → Catppuccin wins
-    btop.enable = true;
-    delta.enable = true;
-    yazi.enable = false; # HM programs.yazi applies Catppuccin theme — avoid duplicate theme.toml
-    kitty.enable = false; # kitty.nix — custom WHOcares! neon palette
-    fzf.enable = false; # custom hot-pink options below
-    lazygit.enable = true;
-    tmux.enable = false; # tmux.nix — custom WHOcares! neon palette
-    zsh-syntax-highlighting.enable = true;
-    starship.enable = false; # Managed by programs.starship.settings below
-    swaylock.enable = false; # desktop.nix — custom Catppuccin lock screen
-  };
 
   # ── Stylix theming engine ──────────────────────────────────────────────────
   stylix = {
