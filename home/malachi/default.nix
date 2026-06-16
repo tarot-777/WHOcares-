@@ -44,10 +44,10 @@
     shell.enable = true;
     externalRepos.enable = true;
 
-    # Enable defensive security features and heavy tools (aircrack, hcxdumptool, kismet)
+    # Enable defensive security features (no deep tools by default)
     security = {
       enable = true;
-      deep = { enable = true; };
+      deep = { enable = false; };
     };
 
     llmOrchestrator = {
