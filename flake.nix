@@ -1,5 +1,5 @@
 {
-  description = "Aegis-Dualis - reusable Linux/Home Manager and NixOS framework";
+  description = "WHOcares! - a flake-powered Linux workstation framework";
 
   nixConfig = {
     extra-substituters = [
@@ -121,6 +121,17 @@
             inherit name runtimeInputs text;
           };
 
+        formatter = mkCommand {
+          name = "whocares-fmt";
+          runtimeInputs = [pkgs.alejandra];
+          text = ''
+            if (($# == 0)); then
+              set -- .
+            fi
+            exec alejandra "$@"
+          '';
+        };
+
         commands = rec {
           info = mkCommand {
             name = "aegis-info";
@@ -128,15 +139,26 @@
             text = ''
               root="''${AEGIS_FLAKE:-${settings.repositoryPath}}"
               printf '%s\n' \
-                "Aegis-Dualis framework" \
+                "WHOcares! workstation framework" \
+                "Declarative shell, editor, desktop, media, and privacy workflows." \
+                "" \
                 "Root:          $root" \
                 "Home profile:  ${defaultHomeProfile}" \
                 "NixOS host:    ${settings.defaultNixosHost}" \
                 "" \
-                "nix run path:$root#home-build" \
-                "nix run path:$root#home-switch" \
-                "nix run path:$root#nixos-switch" \
-                "nix run path:$root#check"
+                "Capabilities:" \
+                "  Home Manager     Zsh, Nushell, Neovim, Kitty, tmux, Git, and CLI tools" \
+                "  Desktop          Niri-oriented Wayland tools, Dolphin, and media defaults" \
+                "  Automation       Build, switch, update, audit, and health-check commands" \
+                "  LLM workflows    Redacted context, fixpacks, review prompts, and guarded patches" \
+                "  Privacy          Guarded Whonix verification, import, and libvirt control" \
+                "  Profiles         Optional graphics, office, virtualization, and ROCm sets" \
+                "" \
+                "Try it:" \
+                "  nix develop path:$root" \
+                "  nix run path:$root#home-build" \
+                "  nix run path:$root#home-switch" \
+                "  nix run path:$root#check"
             '';
           };
 
@@ -211,19 +233,29 @@
           };
         };
 
-        mkApp = package: {
+        commandDescriptions = {
+          info = "Show WHOcares! capabilities, targets, and entry points";
+          home-build = "Build the selected Home Manager profile";
+          home-switch = "Activate the selected Home Manager profile";
+          nixos-switch = "Rebuild and activate the selected NixOS host";
+          check = "Evaluate every flake output without building it";
+          update = "Update the framework's locked flake inputs";
+        };
+
+        mkApp = name: package: {
           type = "app";
           program = lib.getExe package;
+          meta.description = commandDescriptions.${name};
         };
 
         evaluation = {
           homeProfiles = builtins.attrNames settings.homeProfiles;
           nixosHosts = builtins.attrNames settings.nixosHosts;
-          defaultHomeProfile = defaultHomeProfile;
-          defaultNixosHost = settings.defaultNixosHost;
+          inherit defaultHomeProfile;
+          inherit (settings) defaultNixosHost;
         };
       in {
-        formatter = pkgs.alejandra;
+        inherit formatter;
 
         devShells = {
           aegis-dev = import ./shells/aegis-dev {inherit pkgs;};
@@ -237,9 +269,9 @@
           };
 
         apps =
-          lib.mapAttrs (_: mkApp) commands
+          lib.mapAttrs mkApp commands
           // {
-            default = mkApp commands.info;
+            default = mkApp "info" commands.info;
           };
 
         checks = {
@@ -247,6 +279,27 @@
           framework-evaluation =
             pkgs.writeText "aegis-framework-evaluation.json"
             (builtins.toJSON evaluation);
+          source-quality =
+            pkgs.runCommand "whocares-source-quality" {
+              nativeBuildInputs = with pkgs; [
+                alejandra
+                deadnix
+                shellcheck
+                statix
+              ];
+              src = lib.cleanSource ./.;
+            } ''
+              cp -R "$src" source
+              chmod -R u+w source
+              cd source
+
+              alejandra --check .
+              statix check .
+              deadnix --fail .
+              shellcheck install.sh repair-from-documents-tree.sh
+
+              touch "$out"
+            '';
         };
       };
 

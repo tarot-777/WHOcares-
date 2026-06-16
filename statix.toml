@@ -1,0 +1,4 @@
+# Home Manager modules are easier to navigate when related options remain in
+# topical sections, even when those sections share a top-level option prefix.
+disabled = ["repeated_keys"]
+ignore = [".direnv"]

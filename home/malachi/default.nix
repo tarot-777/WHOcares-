@@ -23,7 +23,9 @@
   ...
 }: {
   imports = [
+    ../modules/security.nix
     ../modules/shell.nix
+    ../modules/llm-orchestrator.nix
     ../modules/profiles.nix
     ../modules/external-repos.nix
     ../modules/zsh.nix
@@ -31,17 +33,24 @@
     ../modules/kitty.nix
     ../modules/tmux.nix
     ../modules/nvim.nix
+    ../modules/dolphin.nix
+    ../modules/media.nix
     ../modules/awesome-tools.nix
   ];
 
-  # Remove the deprecated `whycare` attribute.  Shell extras are now enabled by default via the
-  # `shell.nix` module itself, and heavy package sets are disabled by default.  If you wish to
-  # customise heavy package inclusion, adjust the `heavyEnabled` definition below.
-
+  # Feature switches are grouped under the framework's `whycare` namespace.
   whycare = {
     enableFullPower = false;
     shell.enable = true;
     externalRepos.enable = true;
+
+    llmOrchestrator = {
+      enable = true;
+      browser = "brave";
+      maxFileBytes = 50000;
+      maxFilesBrief = 35;
+      maxFilesFull = 90;
+    };
 
     profiles = {
       full.enable = false;
@@ -82,6 +91,7 @@
       EDITOR = "nvim";
       VISUAL = "nvim";
       TERMINAL = "kitty";
+      XDG_TERMINAL = "kitty";
       PAGER = "bat --style=plain";
       BAT_THEME = "Catppuccin Mocha";
 
@@ -174,12 +184,10 @@
           sd
           choose
           # ── Media & desktop apps (native Nix — no Flatpak) ───────────────────
-          # mpv / celluloid / vlc → media.nix
+          # mpv / celluloid / ffmpeg → media.nix
+          # Dolphin / Ark / KIO plugins → dolphin.nix
           imv
           zathura
-          ffmpeg-full
-          thunar
-          file-roller
           gnome-text-editor
           gnome-control-center
 
@@ -326,7 +334,7 @@
   catppuccin = {
     enable = true;
     flavor = "mocha";
-    accent = "mauve";
+    accent = "pink";
     autoEnable = true;
 
     # Programs whose theming is handed off to Stylix:
@@ -334,10 +342,10 @@
     btop.enable = true;
     delta.enable = true;
     yazi.enable = false; # HM programs.yazi applies Catppuccin theme — avoid duplicate theme.toml
-    kitty.enable = true; # kitty.nix — full power-user config
-    fzf.enable = true;
+    kitty.enable = false; # kitty.nix — custom WHOcares! neon palette
+    fzf.enable = false; # custom hot-pink options below
     lazygit.enable = true;
-    tmux.enable = true;
+    tmux.enable = false; # tmux.nix — custom WHOcares! neon palette
     zsh-syntax-highlighting.enable = true;
     starship.enable = false; # Managed by programs.starship.settings below
     swaylock.enable = false; # desktop.nix — custom Catppuccin lock screen
@@ -361,33 +369,33 @@
         mkdir -p "$XDG_CACHE_HOME/fontconfig"
         FONT=$(fc-match -f '%{file}\n' 'Noto Sans' || fc-match -f '%{file}\n' 'DejaVu Sans')
         convert -size 3840x2160 \
-          gradient:'#1e1e2e-#11111b' \
-          -fill '#313244' -draw "rectangle 0,1079 3839,1080" \
-          -fill '#cba6f7' -font "$FONT" -pointsize 56 \
-          -gravity SouthEast -annotate +100+60 'Aegis-Dualis v2' \
+          gradient:'#050006-#21001f' \
+          -fill '#ff1744' -draw "rectangle 0,1079 3839,1080" \
+          -fill '#ff2bd6' -font "$FONT" -pointsize 56 \
+          -gravity SouthEast -annotate +100+60 'WHOcares! neon' \
           $out
       '';
 
     base16Scheme = {
-      scheme = "Catppuccin Mocha";
+      scheme = "WHOcares Neon";
       author = "Aegis-Dualis";
-      slug = "catppuccin-mocha";
-      base00 = "1e1e2e";
-      base01 = "181825";
-      base02 = "313244";
-      base03 = "45475a";
-      base04 = "585b70";
-      base05 = "cdd6f4";
-      base06 = "f5e0dc";
-      base07 = "b4befe";
-      base08 = "f38ba8";
-      base09 = "fab387";
-      base0A = "f9e2af";
-      base0B = "a6e3a1";
-      base0C = "94e2d5";
-      base0D = "89b4fa";
-      base0E = "cba6f7";
-      base0F = "f2cdcd";
+      slug = "whocares-neon";
+      base00 = "050006"; # black
+      base01 = "09000d";
+      base02 = "120018";
+      base03 = "21001f";
+      base04 = "8e4f80";
+      base05 = "ffd6f4";
+      base06 = "ffe6fa";
+      base07 = "ffffff";
+      base08 = "ff1744"; # red
+      base09 = "ff6b8a";
+      base0A = "ff9f1c";
+      base0B = "ff8ce6";
+      base0C = "67e8f9";
+      base0D = "a855f7"; # purple
+      base0E = "ff2bd6"; # hot pink
+      base0F = "d8b4fe";
     };
 
     fonts = {
@@ -544,6 +552,42 @@
         }} | table
       }
 
+      def nix-root [] {
+        mut root = $env.PWD
+        loop {
+          if (($root | path join "flake.nix") | path exists) {
+            return $root
+          }
+          let parent = ($root | path dirname)
+          if $parent == $root {
+            return ($env.WHOCARES_FLAKE? | default $env.AEGIS_FLAKE? | default $env.PWD)
+          }
+          $root = $parent
+        }
+      }
+
+      def ncheck [...args: string] {
+        let root = (nix-root)
+        ^nix flake check --no-build --show-trace $"path:($root)" ...$args
+      }
+
+      def ndev [...args: string] {
+        let root = (nix-root)
+        ^nix develop $"path:($root)" ...$args
+      }
+
+      def hmb [...args: string] {
+        with-env { WHOCARES_FLAKE: (nix-root) } {
+          ^hm-check ...$args
+        }
+      }
+
+      def hms [...args: string] {
+        with-env { WHOCARES_FLAKE: (nix-root) } {
+          ^hm ...$args
+        }
+      }
+
       # Passive OSINT pipeline — outputs to $WHYCARE_HOME/recon/<domain>
       def osint-passive [domain: string] {
         let out = ($env.WHYCARE_HOME | path join "recon" $domain)
@@ -608,7 +652,6 @@
       alias cat    = bat
       alias diff   = delta
       alias grep   = rg
-      alias find   = fd
       alias top    = btop
       alias g      = git
       alias lg     = lazygit
@@ -618,12 +661,24 @@
       alias bp     = burpsuite
       alias wclip  = wl-copy
       alias wpaste = wl-paste
-      # hm / nix-gc / nix-up → health.nix nushell aliases
+      alias guide  = whocares-guide
+      alias aliases = whocares-guide
+      # hm / nix-gc / nix-up → awesome-tools.nix wrappers
       alias dk     = podman
       alias dkc    = podman-compose
       alias dkps   = podman ps -a
       alias ports  = ss -tulpn
       alias netmon = bandwhich
+      alias nfc    = ncheck
+      alias hmc    = hm-check
+      alias nshow  = nix flake show
+      alias nfmt   = nix-fmt
+      alias naudit = nix-audit
+      alias nhealth = nix-health
+      alias ngc    = nix-gc
+      alias nup    = nix-up
+      alias nwhy   = nix why-dep
+      alias npath  = nix path-info -Sh
     '';
   };
 
@@ -631,64 +686,50 @@
   programs.starship = {
     enable = true;
     enableZshIntegration = true;
-    # Catppuccin Mocha palette — manual because catppuccin.starship is disabled
-    # to avoid double-theming with Stylix.
+    enableNushellIntegration = true;
+    # WHOcares! hot-pink / black / red / purple palette.
     settings = {
       format = lib.concatStrings [
         "$username$hostname$directory$git_branch$git_status"
         "$nix_shell$python$rust$golang$nodejs"
         "$cmd_duration$line_break$character"
       ];
-      palette = "catppuccin_mocha";
-      palettes.catppuccin_mocha = {
-        rosewater = "f5e0dc";
-        flamingo = "f2cdcd";
-        pink = "f5c2e7";
-        mauve = "cba6f7";
-        red = "f38ba8";
-        maroon = "eba0ac";
-        peach = "fab387";
-        yellow = "f9e2af";
-        green = "a6e3a1";
-        teal = "94e2d5";
-        sky = "89dceb";
-        sapphire = "74c7ec";
-        blue = "89b4fa";
-        lavender = "b4befe";
-        text = "cdd6f4";
-        subtext1 = "bac2de";
-        subtext0 = "a6adc8";
-        overlay2 = "9399b2";
-        overlay1 = "7f849c";
-        overlay0 = "6c7086";
-        surface2 = "585b70";
-        surface1 = "45475a";
-        surface0 = "313244";
-        base = "1e1e2e";
-        mantle = "181825";
-        crust = "11111b";
+      palette = "whocares_neon";
+      palettes.whocares_neon = {
+        black = "050006";
+        bg = "09000d";
+        panel = "21001f";
+        muted = "8e4f80";
+        text = "ffd6f4";
+        pink = "ff2bd6";
+        pinksoft = "ff8ce6";
+        red = "ff1744";
+        redsoft = "ff6b8a";
+        purple = "a855f7";
+        purplesoft = "d8b4fe";
+        cyan = "67e8f9";
       };
       character = {
-        success_symbol = "[❯](bold green)";
+        success_symbol = "[❯](bold pink)";
         error_symbol = "[❯](bold red)";
-        vimcmd_symbol = "[❮](bold mauve)";
+        vimcmd_symbol = "[❮](bold purple)";
       };
       directory = {
-        style = "bold blue";
+        style = "bold purple";
         truncation_length = 4;
         truncate_to_repo = true;
       };
-      git_branch.style = "bold mauve";
+      git_branch.style = "bold pink";
       git_status.style = "bold red";
       nix_shell = {
-        style = "bold teal";
+        style = "bold cyan";
         symbol = "❄️  ";
-        impure_msg = "[impure](bold yellow)";
-        pure_msg = "[pure](bold green)";
+        impure_msg = "[impure](bold redsoft)";
+        pure_msg = "[pure](bold pinksoft)";
       };
       cmd_duration = {
         min_time = 500;
-        style = "bold yellow";
+        style = "bold redsoft";
       };
     };
   };
@@ -704,6 +745,7 @@
   programs.atuin = {
     enable = true;
     enableZshIntegration = true;
+    enableNushellIntegration = true;
     settings = {
       style = "compact";
       inline_height = 20;
@@ -718,12 +760,14 @@
   programs.zoxide = {
     enable = true;
     enableZshIntegration = true;
+    enableNushellIntegration = true;
   };
 
   # ── Yazi file manager ──────────────────────────────────────────────────────
   programs.yazi = {
     enable = true;
     enableZshIntegration = true;
+    enableNushellIntegration = true;
     shellWrapperName = "yy"; # explicit: keeps legacy behaviour
     settings = {
       manager = {
@@ -784,10 +828,9 @@
     homedir = "${config.home.homeDirectory}/.gnupg";
     settings = {
       use-agent = true;
-      default-key-format = "ed25519";
-      personal-cipher-prefs = "AES256 TWOFISH AES192 AES";
-      personal-digest-prefs = "SHA512 SHA384 SHA256";
-      personal-compress-prefs = "ZLIB BZIP2 ZIP Uncompressed";
+      personal-cipher-preferences = "AES256 TWOFISH AES192 AES";
+      personal-digest-preferences = "SHA512 SHA384 SHA256";
+      personal-compress-preferences = "ZLIB BZIP2 ZIP Uncompressed";
       cert-digest-algo = "SHA512";
       s2k-digest-algo = "SHA512";
       s2k-cipher-algo = "AES256";
@@ -836,9 +879,10 @@
     defaultOptions = [
       "--height=40%"
       "--border=rounded"
-      "--color=bg+:#313244,bg:#1e1e2e,spinner:#f5e0dc,hl:#f38ba8"
-      "--color=fg:#cdd6f4,header:#f38ba8,info:#cba6f7,pointer:#f5e0dc"
-      "--color=marker:#b4befe,fg+:#cdd6f4,prompt:#cba6f7,hl+:#f38ba8"
+      "--color=bg+:#21001f,bg:#050006,spinner:#ff2bd6,hl:#ff1744"
+      "--color=fg:#ffd6f4,header:#ff2bd6,info:#a855f7,pointer:#ff2bd6"
+      "--color=marker:#ff8ce6,fg+:#ffffff,prompt:#a855f7,hl+:#ff6b8a"
+      "--color=border:#8e4f80"
     ];
     fileWidgetCommand = "fd --type f --hidden --follow --exclude .git";
     changeDirWidgetCommand = "fd --type d --hidden --follow --exclude .git";
@@ -863,20 +907,117 @@
   # Waybar → replaced by DankMaterialShell (dms.nix)
   programs.waybar.enable = false;
 
-  # mpv / video defaults → media.nix
+  # Desktop launch defaults → qutebrowser, Dolphin, Kitty, and Kitty-hosted nvim.
+  xdg.terminal-exec = {
+    enable = true;
+    settings = {
+      default = ["kitty.desktop"];
+      niri = ["kitty.desktop"];
+      GNOME = ["kitty.desktop"];
+      KDE = ["kitty.desktop"];
+    };
+  };
+
+  xdg.desktopEntries = {
+    kitty = {
+      name = "Kitty";
+      genericName = "Terminal Emulator";
+      comment = "WHOcares neon Kitty terminal";
+      exec = "${config.home.profileDirectory}/bin/kitty %U";
+      icon = "kitty";
+      terminal = false;
+      categories = [
+        "System"
+        "TerminalEmulator"
+      ];
+      mimeType = ["x-scheme-handler/terminal"];
+      startupNotify = true;
+      settings = {
+        Keywords = "shell;prompt;command;commandline;terminal;tmux;WHOcares;";
+        X-TerminalArgExec = "-e";
+        X-TerminalArgTitle = "--title";
+      };
+    };
+
+    whocares-terminal-dashboard = {
+      name = "WHOcares Terminal Dashboard";
+      genericName = "Terminal Dashboard";
+      comment = "Open the WHOcares Kitty dashboard with fastfetch, guide, git, and tmux shortcuts";
+      exec = "${config.home.profileDirectory}/bin/kitty-framework dashboard";
+      icon = "kitty";
+      terminal = false;
+      categories = [
+        "System"
+        "TerminalEmulator"
+      ];
+      startupNotify = true;
+      settings.Keywords = "kitty;tmux;fastfetch;nix;home-manager;WHOcares;";
+    };
+
+    whocares-editor = {
+      name = "WHOcares Neovim";
+      genericName = "Text Editor";
+      comment = "Open files in Neovim inside the WHOcares Kitty terminal";
+      exec = "${config.home.profileDirectory}/bin/kitty --class whocares-editor --title WHOcares-Neovim -e ${config.home.profileDirectory}/bin/nvim %F";
+      icon = "nvim";
+      terminal = false;
+      noDisplay = true;
+      categories = [
+        "Utility"
+        "TextEditor"
+        "Development"
+      ];
+      mimeType = [
+        "application/json"
+        "application/toml"
+        "application/x-shellscript"
+        "application/xml"
+        "text/css"
+        "text/html"
+        "text/markdown"
+        "text/plain"
+        "text/x-c"
+        "text/x-c++"
+        "text/x-lua"
+        "text/x-nix"
+        "text/x-python"
+        "text/x-rust"
+        "text/x-script"
+        "text/yaml"
+      ];
+      startupNotify = true;
+      settings.Keywords = "nvim;neovim;editor;code;kitty;WHOcares;";
+    };
+  };
+
+  # Dolphin defaults → dolphin.nix
+  # MPV / Celluloid defaults → media.nix
 
   # ── XDG default apps (native Nix — no Flatpak) ─────────────────────────────
   xdg.mimeApps = {
     enable = true;
     defaultApplications = {
-      "inode/directory" = "thunar.desktop";
       "application/pdf" = "org.gnome.Evince.desktop";
+      "application/json" = "whocares-editor.desktop";
+      "application/toml" = "whocares-editor.desktop";
+      "application/x-shellscript" = "whocares-editor.desktop";
+      "application/xhtml+xml" = "org.qutebrowser.qutebrowser.desktop";
       "image/jpeg" = "imv.desktop";
       "image/png" = "imv.desktop";
       "image/webp" = "imv.desktop";
-      "text/html" = "firefox.desktop";
-      "x-scheme-handler/http" = "firefox.desktop";
-      "x-scheme-handler/https" = "firefox.desktop";
+      "text/css" = "whocares-editor.desktop";
+      "text/html" = "org.qutebrowser.qutebrowser.desktop";
+      "text/markdown" = "whocares-editor.desktop";
+      "text/plain" = "whocares-editor.desktop";
+      "text/x-lua" = "whocares-editor.desktop";
+      "text/x-nix" = "whocares-editor.desktop";
+      "text/x-python" = "whocares-editor.desktop";
+      "text/x-rust" = "whocares-editor.desktop";
+      "text/yaml" = "whocares-editor.desktop";
+      "x-scheme-handler/chrome" = "org.qutebrowser.qutebrowser.desktop";
+      "x-scheme-handler/http" = "org.qutebrowser.qutebrowser.desktop";
+      "x-scheme-handler/https" = "org.qutebrowser.qutebrowser.desktop";
+      "x-scheme-handler/terminal" = "kitty.desktop";
       "application/zip" = "file-roller.desktop";
     };
   };

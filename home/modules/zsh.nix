@@ -12,8 +12,11 @@
 # ---------------------------------------------------------------------------
 {
   config,
+  hostName ? "coffin",
   lib,
+  nixosHostName ? "Aegis-Dualis",
   pkgs,
+  userName ? "malachi",
   ...
 }: {
   programs.zsh = {
@@ -53,9 +56,24 @@
         file = "share/zsh/zsh-autopair/autopair.zsh";
       }
       {
+        name = "zsh-history-substring-search";
+        src = pkgs.zsh-history-substring-search;
+        file = "share/zsh-history-substring-search/zsh-history-substring-search.zsh";
+      }
+      {
         name = "you-should-use";
         src = pkgs.zsh-you-should-use;
         file = "share/zsh/plugins/you-should-use/you-should-use.plugin.zsh";
+      }
+      {
+        name = "nix-zsh-completions";
+        src = pkgs.nix-zsh-completions;
+        file = "share/zsh/plugins/nix/nix-zsh-completions.plugin.zsh";
+      }
+      {
+        name = "zsh-nix-shell";
+        src = pkgs.zsh-nix-shell;
+        file = "share/zsh-nix-shell/nix-shell.plugin.zsh";
       }
     ];
 
@@ -83,7 +101,7 @@
       cat = "bat --style=plain --paging=never";
       diff = "delta";
       grep = "rg --color=auto";
-      find = "fd";
+      ff = "fd";
       top = "btop";
       du = "dust";
       df = "duf";
@@ -97,6 +115,12 @@
       c = "clear";
       home = "cd ~";
       dots = "cd \"$AEGIS_FLAKE\"";
+      cfg = "cd \"${config.home.homeDirectory}/WHOcares!\"";
+      root = "whocares-cd";
+      edit = "whocares-edit";
+      guide = "whocares-guide";
+      aliases = "whocares-guide";
+      reload = "exec zsh";
 
       # ── Git ──────────────────────────────────────────────────────────────
       g = "git";
@@ -113,15 +137,53 @@
       gs = "git status --short --branch";
       lg = "lazygit";
 
-      # ── Nix workflow ─────────────────────────────────────────────────────
+      # ── Nix / Home Manager / NixOS workflow ─────────────────────────────
+      nb = "nix build";
       nd = "nix develop";
+      ne = "nix eval";
       nfl = "nix flake";
       nr = "nix run";
+      nrpl = "nix repl";
       ns = "nix shell";
       nshow = "nix flake show";
+      nfc = "nix-check";
+      ndev = "nix-develop";
+      nfmt = "nix-fmt";
+      naudit = "nix-audit";
+      nhealth = "nix-health";
+      ngc = "nix-gc";
+      nup = "nix-up";
+      nq = "nix search nixpkgs";
+      nwhy = "nix why-dep";
+      npath = "nix path-info -Sh";
+      ndrv = "nix derivation show";
+      hmb = "home-build";
+      hmc = "hm-check";
+      hms = "home-switch";
+      hmu = "nix-up && home-switch";
+      os = "whocares";
+      oss = "whocares";
+      osb = "nixos-build";
+      ost = "nixos-test";
+      osboot = "nixos-boot";
+      osdry = "nixos-dry";
+      osvm = "nixos-vm";
+      target = "nix-target";
+      daily = "nix-daily";
+      ndaily = "nix-daily";
       zpl = "zsh-plugins";
       zpr = "exec zsh";
       zpu = "nix-up && hm";
+
+      # ── Systemd / logs ───────────────────────────────────────────────────
+      sc = "systemctl";
+      scu = "systemctl --user";
+      jc = "journalctl";
+      jcu = "journalctl --user";
+      jxe = "journalctl -xe";
+      jxu = "journalctl --user -xe";
+      bootlog = "journalctl -b -p warning..alert";
+      userlog = "journalctl --user -b -p warning..alert";
 
       # ── Network / privacy ────────────────────────────────────────────────
       px = "proxychains4 -q";
@@ -153,7 +215,11 @@
     initContent = lib.mkMerge [
       (lib.mkOrder 550 ''
         # Extend completion lookup before Home Manager runs compinit.
-        fpath=(${pkgs.zsh-completions}/share/zsh/site-functions $fpath)
+        fpath=(
+          ${pkgs.zsh-completions}/share/zsh/site-functions
+          ${pkgs.nix-zsh-completions}/share/zsh/site-functions
+          $fpath
+        )
 
         # Plugin settings must exist before plugins are sourced (order 900).
         ZVM_VI_INSERT_ESCAPE_BINDKEY=jk
@@ -225,16 +291,130 @@
             '  fzf-tab          ${pkgs.zsh-fzf-tab.version}' \
             '  zsh-vi-mode      ${pkgs.zsh-vi-mode.version}' \
             '  zsh-autopair     ${pkgs.zsh-autopair.version}' \
+            '  history-search   ${pkgs.zsh-history-substring-search.version}' \
             '  you-should-use   ${pkgs.zsh-you-should-use.version}' \
+            '  nix-completions  ${pkgs.nix-zsh-completions.version}' \
+            '  zsh-nix-shell    ${pkgs.zsh-nix-shell.version}' \
             "" \
             'Commands' \
             '  zpl              show this inventory' \
             '  zpr              reload Zsh' \
+            '  daily            show Nix, Home Manager, and NixOS shortcuts' \
             '  zpu              update flake inputs and run Home Manager switch'
         }
 
           # Distrobox has no shell-init hook. Completion is supplied by
           # Home Manager, carapace, and fzf-tab through normal PATH discovery.
+
+        # Locate the nearest flake root, falling back to the configured framework.
+        nix-root() {
+          local root="$PWD"
+          while [[ "$root" != "/" && ! -f "$root/flake.nix" ]]; do
+            root="''${root:h}"
+          done
+          if [[ -f "$root/flake.nix" ]]; then
+            print -r -- "$root"
+          else
+            print -r -- "''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-$PWD}}"
+          fi
+        }
+
+        nix-check() {
+          local root
+          root="$(nix-root)" || return
+          nix flake check --no-build --show-trace "path:$root" "$@"
+        }
+
+        nix-develop() {
+          local root
+          root="$(nix-root)" || return
+          nix develop "path:$root" "$@"
+        }
+
+        home-build() {
+          local root
+          root="$(nix-root)" || return
+          WHOCARES_FLAKE="$root" hm-check "$@"
+        }
+
+        home-switch() {
+          local root
+          root="$(nix-root)" || return
+          WHOCARES_FLAKE="$root" hm "$@"
+        }
+
+        whocares-edit() {
+          local root editor
+          root="$(nix-root)" || return
+          editor="''${EDITOR:-nvim}"
+          "$editor" "$root"
+        }
+
+        whocares-cd() {
+          local root
+          root="$(nix-root)" || return
+          cd -- "$root"
+        }
+
+        nix-target() {
+          local root host
+          root="$(nix-root)" || return
+          host="''${WHOCARES_NIXOS_HOST:-''${AEGIS_NIXOS_HOST:-${nixosHostName}}}"
+          print -r -- "path:$root#$host"
+        }
+
+        nix-daily() {
+          local root host profile
+          root="$(nix-root)" || return
+          host="''${WHOCARES_NIXOS_HOST:-''${AEGIS_NIXOS_HOST:-${nixosHostName}}}"
+          profile="''${WHOCARES_PROFILE:-''${AEGIS_PROFILE:-${userName}@''${AEGIS_HOST:-${hostName}}}}"
+
+          printf '%s\n' \
+            'WHOcares! daily Nix commands' \
+            "  flake: $root" \
+            "  home:  $profile" \
+            "  nixos: $host" \
+            "  guide: whocares-guide" \
+            "" \
+            'Checks and formatting' \
+            '  nfc      nix flake check --no-build --show-trace for nearest flake' \
+            '  nfmt     run Alejandra through nix-fmt' \
+            '  naudit   run Deadnix and Statix checks' \
+            '  nhealth  show flake outputs and build Home Manager' \
+            "" \
+            'Home Manager' \
+            '  hmb      build nearest Home Manager flake' \
+            '  hms      switch nearest Home Manager flake' \
+            '  hmu      update flake inputs, then switch Home Manager' \
+            '  hm-check low-priority configured Home Manager build' \
+            "" \
+            'NixOS host' \
+            '  osb      build selected NixOS host' \
+            '  ost      test selected NixOS host with sudo' \
+            '  osboot   set selected NixOS host for next boot with sudo' \
+            '  oss/os   switch selected NixOS host with sudo' \
+            '  osdry    dry-build selected NixOS host' \
+            "" \
+            'System and terminal' \
+            '  bootlog  warnings and errors from the current boot' \
+            '  userlog  user-service warnings and errors from the current boot' \
+            '  guide    aliases, functions, Kitty, and tmux quick reference' \
+            '  kdash    open Kitty with Fastfetch, daily commands, and git status' \
+            '  whocares-edit  open the nearest flake root in $EDITOR' \
+            "" \
+            'Discovery and cleanup' \
+            '  nfind    search nixpkgs and nix-locate' \
+            '  nopt     search NixOS/Home Manager options' \
+            '  nlock    browse flake.lock' \
+            '  nup      update flake inputs' \
+            '  ngc      collect old Nix generations'
+        }
+
+        # History substring search keeps Up/Down useful after partial typing.
+        bindkey '^[[A' history-substring-search-up
+        bindkey '^[[B' history-substring-search-down
+        bindkey '^[OA' history-substring-search-up
+        bindkey '^[OB' history-substring-search-down
 
         # Quick nix-shell for a package without entering devshell
         nix-run() { nix run nixpkgs#"$1" -- "''${@:2}"; }

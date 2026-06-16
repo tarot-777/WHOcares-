@@ -135,6 +135,20 @@
     hm-check
   '';
 
+  mkNixosRebuild = name: action: needsSudo:
+    pkgs.writeShellScriptBin name ''
+      set -euo pipefail
+      flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}"
+      host="''${WHOCARES_NIXOS_HOST:-''${AEGIS_NIXOS_HOST:-${nixosHostName}}}"
+      exec ${lib.optionalString needsSudo "sudo "}${pkgs.nixos-rebuild}/bin/nixos-rebuild ${action} --flake "path:''${flake}#''${host}" "$@"
+    '';
+
+  nixosBuild = mkNixosRebuild "nixos-build" "build" false;
+  nixosTest = mkNixosRebuild "nixos-test" "test" true;
+  nixosBoot = mkNixosRebuild "nixos-boot" "boot" true;
+  nixosDry = mkNixosRebuild "nixos-dry" "dry-build" false;
+  nixosVm = mkNixosRebuild "nixos-vm" "build-vm" false;
+
   whocaresSwitch = pkgs.writeShellScriptBin "whocares" ''
     set -euo pipefail
     flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}"
@@ -196,7 +210,8 @@
              nixd nil nix-tree nvd nom manix comma nix-search-tv cachix devenv \
              nix-index nix-locate nix-du nix-melt dix nix-update nurl optnix angrr \
              nix-output-monitor nix-diff nix-init vulnix nix-fast-build colmena deploy-rs \
-             nix-pkg-find nix-store-du nix-lock nix-dix nix-review nix-vm nix-ctr; do
+             nix-pkg-find nix-store-du nix-lock nix-dix nix-review nix-vm nix-ctr \
+             whocares aegis nixos-build nixos-test nixos-boot nixos-dry nixos-vm; do
       check "$t"
     done
     echo ""
@@ -241,6 +256,7 @@
       nix-output-monitor nix-diff vulnix nix-fast-build colmena deploy-rs
       nix-pkg-find nix-store-du nix-lock nix-dix nix-pkg-update
       nix-nurl nix-opt nix-review cached-nix-shell
+      whocares aegis nixos-build nixos-test nixos-boot nixos-dry nixos-vm
       nix-ld angrr
 
     Virtualisation (awesome-nix + awesome-linux-containers)
@@ -291,6 +307,11 @@ in {
     nixGc
     nixUp
     nixHealth
+    nixosBuild
+    nixosTest
+    nixosBoot
+    nixosDry
+    nixosVm
     whocaresSwitch
     aegisSwitch
 
@@ -381,6 +402,7 @@ in {
   programs.direnv = {
     enable = true;
     enableZshIntegration = true;
+    enableNushellIntegration = true;
     nix-direnv.enable = true;
   };
 

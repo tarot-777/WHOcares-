@@ -53,6 +53,9 @@
       shfmt # Shell
       ruff # Python lint+format (replaces black+isort+flake8)
       taplo # also provides `taplo format`
+      statix # Nix anti-pattern linting
+      deadnix # unused Nix bindings
+      shellcheck # shell diagnostics
     ];
 
     plugins = with pkgs.vimPlugins; [
@@ -89,11 +92,16 @@
       flash-nvim # fast motion / search-jump
       trouble-nvim # diagnostics/quickfix list
       todo-comments-nvim
+      diffview-nvim # Git history and change review
+      fidget-nvim # LSP progress notifications
+      direnv-vim # Refresh environment when .envrc changes
+      nvim-lint # statix/deadnix/shellcheck diagnostics
     ];
 
     initLua = ''
       vim.g.mapleader = " "
       vim.g.maplocalleader = "\\"
+      local framework_root = "${flakeRoot}"
 
       -- ── Core UX ───────────────────────────────────────────────────────────
       vim.opt.number = true
@@ -163,6 +171,17 @@
 
       require("gitsigns").setup()
       require("Comment").setup()
+      require("fidget").setup({})
+      require("diffview").setup({
+        enhanced_diff_hl = true,
+        view = {
+          default = { layout = "diff2_horizontal" },
+          merge_tool = { layout = "diff3_mixed" },
+        },
+      })
+      vim.keymap.set("n", "<leader>gd", ":DiffviewOpen<CR>", { desc = "Diffview open" })
+      vim.keymap.set("n", "<leader>gh", ":DiffviewFileHistory %<CR>", { desc = "File history" })
+      vim.keymap.set("n", "<leader>gq", ":DiffviewClose<CR>", { desc = "Diffview close" })
 
       -- ── Markdown / engagement notes ───────────────────────────────────────
       require("render-markdown").setup({
@@ -229,6 +248,12 @@
       vim.keymap.set("n", "<leader>fr", builtin.oldfiles, { desc = "Recent files" })
       vim.keymap.set("n", "<leader>fc", builtin.grep_string, { desc = "Grep word" })
       vim.keymap.set("n", "<leader>fd", builtin.diagnostics, { desc = "Diagnostics" })
+      vim.keymap.set("n", "<leader>nf", function()
+        builtin.find_files({ cwd = framework_root, hidden = true })
+      end, { desc = "Framework files" })
+      vim.keymap.set("n", "<leader>ng", function()
+        builtin.live_grep({ cwd = framework_root, additional_args = { "--hidden" } })
+      end, { desc = "Framework grep" })
 
       -- ── Substitute (quick IOC / string swaps in logs) ─────────────────────
       require("substitute").setup({ highlight = true })
@@ -264,6 +289,10 @@
       vim.keymap.set("n", "<leader>tt", term_cmd("lazygit"), { desc = "Lazygit" })
       vim.keymap.set("n", "<leader>tb", term_cmd("btop"), { desc = "btop" })
       vim.keymap.set("n", "<leader>ty", term_cmd("yazi"), { desc = "Yazi" })
+      vim.keymap.set("n", "<leader>nd", term_cmd("nix develop", { dir = framework_root }), { desc = "Nix develop" })
+      vim.keymap.set("n", "<leader>nc", term_cmd("nix flake check --no-build --show-trace", { dir = framework_root }), { desc = "Flake check" })
+      vim.keymap.set("n", "<leader>nb", term_cmd("hm-check", { dir = framework_root }), { desc = "Home build" })
+      vim.keymap.set("n", "<leader>ns", term_cmd("hm", { dir = framework_root }), { desc = "Home switch" })
 
       -- ── Treesitter (log/json/yaml/bash for triage) ────────────────────────
       require("nvim-treesitter.configs").setup({
@@ -434,6 +463,22 @@
         require("conform").format({ async = true, lsp_format = "fallback" })
       end, { desc = "Format buffer" })
 
+      -- ── Linting (Nix and shell files) ───────────────────────────────────────
+      local lint = require("lint")
+      lint.linters_by_ft = {
+        nix = { "statix", "deadnix" },
+        sh = { "shellcheck" },
+        bash = { "shellcheck" },
+      }
+      vim.api.nvim_create_autocmd({ "BufEnter", "BufWritePost" }, {
+        callback = function()
+          lint.try_lint()
+        end,
+      })
+      vim.keymap.set("n", "<leader>cl", function()
+        lint.try_lint()
+      end, { desc = "Lint buffer" })
+
       require("which-key").setup({
         plugins = { spelling = { enabled = true } },
       })
@@ -444,6 +489,7 @@
         { "<leader>c", group = "Code/LSP" },
         { "<leader>x", group = "Diagnostics" },
         { "<leader>b", group = "Buffers" },
+        { "<leader>n", group = "Nix/Framework" },
         { "<leader>1", group = "Harpoon" },
       })
 

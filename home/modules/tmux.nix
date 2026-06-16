@@ -3,10 +3,21 @@
 #
 # • continuum: auto-save + restore sessions across reboots
 # • scratchpad: popup toggle (Alt+`) + persistent window (prefix + `)
-# • Catppuccin theme via catppuccin.tmux (home.nix)
+# • custom WHOcares! hot-pink / black / red / purple status theme
 # ---------------------------------------------------------------------------
 {pkgs, ...}: let
   tmuxBin = "${pkgs.tmux}/bin/tmux";
+  theme = {
+    bg = "#050006";
+    bgAlt = "#120018";
+    panel = "#21001f";
+    pink = "#ff2bd6";
+    pinkSoft = "#ff8ce6";
+    red = "#ff1744";
+    purple = "#a855f7";
+    text = "#ffd6f4";
+    muted = "#8e4f80";
+  };
 
   scratchToggle = pkgs.writeShellScriptBin "tmux-scratch" ''
     set -euo pipefail
@@ -37,8 +48,41 @@
     fi
     exec ${tmuxBin} new-session -s main -c "$HOME"
   '';
+
+  tmuxOps = pkgs.writeShellScriptBin "tmux-ops" ''
+    set -euo pipefail
+    root="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-$HOME/WHOcares!}}"
+    if [[ ! -d "$root" ]]; then
+      root="$HOME"
+    fi
+
+    if ${tmuxBin} has-session -t ops 2>/dev/null; then
+      exec ${tmuxBin} attach -t ops
+    fi
+
+    ${tmuxBin} new-session -d -s ops -n guide -c "$root" \
+      ${pkgs.zsh}/bin/zsh -lc 'fastfetch; echo; whocares-guide 2>/dev/null || daily; exec zsh'
+    ${tmuxBin} new-window -t ops:2 -n git -c "$root" \
+      ${pkgs.zsh}/bin/zsh -lc 'git status --short --branch; echo; exec zsh'
+    ${tmuxBin} new-window -t ops:3 -n nix -c "$root" \
+      ${pkgs.zsh}/bin/zsh -ic 'daily; echo; exec zsh'
+    ${tmuxBin} new-window -t ops:4 -n logs -c "$root" \
+      ${pkgs.zsh}/bin/zsh -lc 'journalctl -b -p warning..alert; echo; exec zsh'
+    ${tmuxBin} select-window -t ops:1
+    exec ${tmuxBin} attach -t ops
+  '';
+
+  tmuxServerStart = pkgs.writeShellScript "tmux-server-start" ''
+    if ! ${tmuxBin} has-session -t main 2>/dev/null; then
+      ${tmuxBin} new-session -A -d -s main -c "$HOME"
+    fi
+  '';
+
+  tmuxServerStop = pkgs.writeShellScript "tmux-server-stop" ''
+    ${tmuxBin} kill-server 2>/dev/null || true
+  '';
 in {
-  home.packages = [scratchToggle scratchBig tmuxMain];
+  home.packages = [scratchToggle scratchBig tmuxMain tmuxOps];
 
   programs.tmux = {
     enable = true;
@@ -91,11 +135,25 @@ in {
       set -g automatic-rename on
       set -g aggressive-resize on
 
-      # ── Prefix highlight (catppuccin colors) ─────────────────────────────
-      set -g @prefix_highlight_fg "#1e1e2e"
-      set -g @prefix_highlight_bg "#cba6f7"
-      set -g @prefix_highlight_copy_mode_attr "fg=#1e1e2e, bg=#a6e3a1"
-      set -g @prefix_highlight_output_prefix "  "
+      # ── Hot-pink / black / red / purple terminal theme ──────────────────
+      set -g status-style "bg=${theme.bg},fg=${theme.text}"
+      set -g status-left-length 80
+      set -g status-right-length 140
+      set -g status-left "#[fg=${theme.bg},bg=${theme.pink},bold] #S #[fg=${theme.pink},bg=${theme.bgAlt}]"
+      set -g status-right "#[fg=${theme.muted},bg=${theme.bg}] %Y-%m-%d #[fg=${theme.purple},bold]%H:%M #[fg=${theme.bg},bg=${theme.red},bold] #h "
+      set -g window-status-format "#[fg=${theme.muted},bg=${theme.bg}] #I:#W "
+      set -g window-status-current-format "#[fg=${theme.bg},bg=${theme.purple},bold] #I:#W "
+      set -g pane-border-style "fg=${theme.panel}"
+      set -g pane-active-border-style "fg=${theme.pink}"
+      set -g message-style "fg=${theme.text},bg=${theme.panel},bold"
+      set -g mode-style "fg=${theme.bg},bg=${theme.pink},bold"
+      set -g clock-mode-colour "${theme.pink}"
+
+      # ── Prefix highlight ─────────────────────────────────────────────────
+      set -g @prefix_highlight_fg "${theme.bg}"
+      set -g @prefix_highlight_bg "${theme.pink}"
+      set -g @prefix_highlight_copy_mode_attr "fg=${theme.bg}, bg=${theme.red}"
+      set -g @prefix_highlight_output_prefix "  "
       set -g @prefix_highlight_output_suffix " "
 
       # ── SessionX ─────────────────────────────────────────────────────────
@@ -146,6 +204,9 @@ in {
 
       # ── Quick session attach ─────────────────────────────────────────────
       bind m run-shell "tmux attach -t main 2>/dev/null || tmux new-session -ds main -c '#{pane_current_path}'"
+      bind O run-shell "tmux-ops"
+      bind g display-popup -d "#{pane_current_path}" -E -w 92% -h 84% -x C -y C "whocares-guide | ${pkgs.less}/bin/less -R"
+      bind D display-popup -d "#{pane_current_path}" -E -w 92% -h 84% -x C -y C "${pkgs.zsh}/bin/zsh -ic 'daily | ${pkgs.less}/bin/less -R'"
 
       # ── Reload / misc ────────────────────────────────────────────────────
       bind r source-file ~/.config/tmux/tmux.conf \; display "Reloaded"
@@ -162,9 +223,9 @@ in {
       PartOf = ["graphical-session.target"];
     };
     Service = {
-      Type = "forking";
-      ExecStart = "${tmuxBin} new-session -d -s main -c %h";
-      ExecStop = "${tmuxBin} kill-server";
+      Type = "oneshot";
+      ExecStart = tmuxServerStart;
+      ExecStop = tmuxServerStop;
       RemainAfterExit = true;
     };
     Install.WantedBy = ["graphical-session.target"];
@@ -176,7 +237,9 @@ in {
     tl = "tmux list-sessions";
     ts = "tmux new-session -s";
     tm = "tmux-main";
+    td = "tmux-ops";
     scratch = "tmux-scratch";
+    tguide = "bat --style=plain ~/.local/share/aegis/tmux-poweruser.md";
   };
 
   xdg.dataFile."aegis/tmux-poweruser.md".text = ''
@@ -205,7 +268,11 @@ in {
     | `Ctrl+Space -` | split vertical |
     | `Ctrl+Space o` | session picker (sessionx) |
     | `Ctrl+Space f` | fzf tmux launcher |
+    | `Ctrl+Space g` | popup quick guide |
+    | `Ctrl+Space D` | popup daily Nix guide |
+    | `Ctrl+Space O` | attach/open ops dashboard session |
     | `Ctrl+Space m` | attach/create `main` |
     | `tm` / `tmux-main` | attach or create main session |
+    | `td` / `tmux-ops` | hot-pink ops dashboard session |
   '';
 }

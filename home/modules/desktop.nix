@@ -122,7 +122,7 @@ in {
   # feature configuration.
   home.sessionVariables = {
     BROWSER = "qutebrowser";
-    FILE_MANAGER = "thunar";
+    FILE_MANAGER = "dolphin";
     QSG_RHI_BACKEND = "opengl";
   };
 
@@ -139,9 +139,33 @@ in {
     settings = {
       # Treat tabs as belonging to one window rather than spawning new
       # windows by default.
-      tabs = { tabs_are_windows = false; };
+      tabs = {tabs_are_windows = false;};
       colors = {
-        tabs = { bar = { bg = "#1e1e2e"; }; };
+        statusbar.normal = {
+          bg = "#09000d";
+          fg = "#ffd6f4";
+        };
+        tabs = {
+          bar.bg = "#09000d";
+          odd = {
+            bg = "#120018";
+            fg = "#ffd6f4";
+          };
+          even = {
+            bg = "#21001f";
+            fg = "#ffd6f4";
+          };
+          selected = {
+            odd = {
+              bg = "#ff2bd6";
+              fg = "#050006";
+            };
+            even = {
+              bg = "#a855f7";
+              fg = "#050006";
+            };
+          };
+        };
       };
     };
   };
