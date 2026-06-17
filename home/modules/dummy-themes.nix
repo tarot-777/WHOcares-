@@ -1,5 +1,4 @@
-{ lib, pkgs, ... }:
-{
+{lib, ...}: {
   # Top-level placeholder for catppuccin namespace so nested options defined by
   # other modules (catppuccin.*) can exist. This is a lightweight submodule stub.
   options.catppuccin = lib.mkOption {

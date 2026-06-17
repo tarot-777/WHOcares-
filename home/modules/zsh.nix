@@ -21,9 +21,8 @@
 }: {
   programs.zsh = {
     enable = true;
-    # XDG-compliant: ~/.config/zsh  (relative to homeDirectory)
-    # Use explicit literal path to avoid evaluation-time ('$') issues
-    dotDir = "/home/malachi/.config/zsh";
+    # XDG-compliant: ~/.config/zsh
+    dotDir = "${config.xdg.configHome}/zsh";
 
     # Home Manager loads completion before the declarative plugin set.
     enableCompletion = true;
@@ -119,7 +118,7 @@
       c = "clear";
       home = "cd ~";
       dots = "cd \"$AEGIS_FLAKE\"";
-      cfg = "cd \"${config.home.homeDirectory}/WHOcares!\"";
+      cfg = "cd \"$AEGIS_FLAKE\"";
       root = "whocares-cd";
       edit = "whocares-edit";
       guide = "whocares-guide";

@@ -1,10 +1,14 @@
 # Dolphin file management with terminal and Nix workflow integration.
 {
   config,
-  flakeRoot ? "/home/malachi/WHOcares!",
+  flakeRoot ? null,
   pkgs,
   ...
 }: let
+  configuredFlakeRoot =
+    if flakeRoot == null
+    then "${config.home.homeDirectory}/WHOcares"
+    else flakeRoot;
   profileBin = "${config.home.profileDirectory}/bin";
 
   dolphinTerminal = pkgs.writeShellApplication {
@@ -43,7 +47,7 @@
       done
 
       if [[ ! -f "$root/flake.nix" ]]; then
-        root="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}"
+        root="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${configuredFlakeRoot}}}"
       fi
 
       exec "${profileBin}/kitty" \

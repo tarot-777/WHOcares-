@@ -5,10 +5,10 @@ set -euo pipefail
 #   ./aegis-dualis-fixed/{flake.nix,settings.nix,...}
 #   ./home ./hosts ./lib ./shells
 #
-# It creates ~/WHOcares! as the real flake root.
+# It creates ~/WHOcares as the real flake root.
 
 src="${1:-$PWD}"
-dst="${2:-$HOME/WHOcares!}"
+dst="${2:-$HOME/WHOcares}"
 
 mkdir -p "$dst"
 rsync -a "$src/aegis-dualis-fixed/" "$dst"/
@@ -21,5 +21,6 @@ done
 cd "$dst"
 echo "[*] repaired flake root at $dst"
 echo "[*] run:"
-echo "    nix flake check --no-build"
-echo "    nh home switch . -c malachi@coffin"
+echo "    ./install.sh --in-place --home-host workstation"
+echo "    nix run .#home-build"
+echo "    nix run .#home-switch"

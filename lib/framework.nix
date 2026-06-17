@@ -102,6 +102,10 @@
         [
           {
             nixpkgs.pkgs = mkPkgs system;
+            catppuccin = {
+              enable = false;
+              autoEnable = false;
+            };
           }
         ]
         ++ nixosIntegrationModules

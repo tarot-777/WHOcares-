@@ -1,11 +1,16 @@
 {
   config,
+  flakeRoot ? null,
   lib,
   pkgs,
   ...
 }:
 with lib; let
   cfg = config.whycare.shell;
+  configuredFlakeRoot =
+    if flakeRoot == null
+    then "${config.home.homeDirectory}/WHOcares"
+    else flakeRoot;
 
   fastfetchConfig = pkgs.writeText "whocares-fastfetch.jsonc" (builtins.toJSON {
     logo = {
@@ -150,7 +155,7 @@ with lib; let
   banner = pkgs.writeShellScriptBin "whycare-banner" ''
     set -euo pipefail
     host=$(${pkgs.coreutils}/bin/cat /proc/sys/kernel/hostname 2>/dev/null || echo unknown)
-    root="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-/home/malachi/WHOcares!}}"
+    root="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${configuredFlakeRoot}}}"
     hotpink=$'\033[38;2;255;43;214m'
     red=$'\033[38;2;255;23;68m'
     purple=$'\033[38;2;168;85;247m'

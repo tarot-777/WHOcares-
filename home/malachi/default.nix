@@ -15,11 +15,11 @@
   config,
   lib,
   pkgs,
-  flakeRoot ? "/home/malachi/Documents",
   hostName ? "coffin",
-  homeDirectory ? "/home/malachi",
-  userEmail ? "malachi@aegis-dualis",
   userName ? "malachi",
+  homeDirectory ? "/home/${userName}",
+  flakeRoot ? "${homeDirectory}/WHOcares",
+  userEmail ? "${userName}@${hostName}",
   ...
 }: {
   imports = [
@@ -75,51 +75,52 @@
     stateVersion = "25.05";
 
     # ── Session environment ─────────────────────────────────────────────────
-    sessionVariables = {
-      # AMD RX 480 — ROCm gfx803 compatibility shim
-      HSA_OVERRIDE_GFX_VERSION = "8.0.3";
-      LIBVA_DRIVER_NAME = "radeonsi";
-      VDPAU_DRIVER = "radeonsi";
+    sessionVariables =
+      (lib.optionalAttrs config.whycare.profiles.rocm.enable {
+        # AMD RX 480 / ROCm gfx803 compatibility shim.
+        HSA_OVERRIDE_GFX_VERSION = "8.0.3";
+        LIBVA_DRIVER_NAME = "radeonsi";
+        VDPAU_DRIVER = "radeonsi";
+      })
+      // {
+        # Wayland / Niri
+        MOZ_ENABLE_WAYLAND = "1";
+        NIXOS_OZONE_WL = "1";
+        QT_QPA_PLATFORM = "wayland";
+        QT_WAYLAND_DISABLE_WINDOWDECORATION = "1";
+        GDK_BACKEND = "wayland";
+        SDL_VIDEODRIVER = "wayland";
+        CLUTTER_BACKEND = "wayland";
+        XDG_SESSION_TYPE = "wayland";
+        XDG_CURRENT_DESKTOP = "niri";
 
-      # Wayland / Niri
-      MOZ_ENABLE_WAYLAND = "1";
-      NIXOS_OZONE_WL = "1";
-      QT_QPA_PLATFORM = "wayland";
-      QT_WAYLAND_DISABLE_WINDOWDECORATION = "1";
-      GDK_BACKEND = "wayland";
-      SDL_VIDEODRIVER = "wayland";
-      CLUTTER_BACKEND = "wayland";
-      XDG_SESSION_TYPE = "wayland";
-      XDG_CURRENT_DESKTOP = "niri";
-      XDG_RUNTIME_DIR = "/run/user/1000";
+        # Editor / pager
+        EDITOR = "nvim";
+        VISUAL = "nvim";
+        TERMINAL = "kitty";
+        XDG_TERMINAL = "kitty";
+        PAGER = "bat --style=plain";
+        BAT_THEME = "Catppuccin Mocha";
 
-      # Editor / pager
-      EDITOR = "nvim";
-      VISUAL = "nvim";
-      TERMINAL = "kitty";
-      XDG_TERMINAL = "kitty";
-      PAGER = "bat --style=plain";
-      BAT_THEME = "Catppuccin Mocha";
+        # Aegis paths
+        WHYCARE_HOME = "${homeDirectory}/.whycare";
+        AEGIS_FLAKE = flakeRoot;
+        AEGIS_HOST = hostName;
 
-      # Aegis paths
-      WHYCARE_HOME = "${homeDirectory}/.whycare";
-      AEGIS_FLAKE = flakeRoot;
-      AEGIS_HOST = hostName;
+        # Language toolchain homes
+        PYTHONDONTWRITEBYTECODE = "1";
+        PYTHONPYCACHEPREFIX = "${homeDirectory}/.cache/pycache";
+        UV_CACHE_DIR = "${homeDirectory}/.cache/uv";
+        GOPATH = "${homeDirectory}/go";
+        GOBIN = "${homeDirectory}/go/bin";
+        CARGO_HOME = "${homeDirectory}/.cargo";
 
-      # Language toolchain homes
-      PYTHONDONTWRITEBYTECODE = "1";
-      PYTHONPYCACHEPREFIX = "${homeDirectory}/.cache/pycache";
-      UV_CACHE_DIR = "${homeDirectory}/.cache/uv";
-      GOPATH = "${homeDirectory}/go";
-      GOBIN = "${homeDirectory}/go/bin";
-      CARGO_HOME = "${homeDirectory}/.cargo";
+        # Nix
+        NIX_AUTO_INIT = "1";
 
-      # Nix
-      NIX_AUTO_INIT = "1";
-
-      # Tor / proxychains default chain
-      PROXY_CHAIN = "socks5 127.0.0.1 9050";
-    };
+        # Tor / proxychains default chain
+        PROXY_CHAIN = "socks5 127.0.0.1 9050";
+      };
 
     # ── User packages ───────────────────────────────────────────────────────
     # Organised by domain for easy maintenance.
@@ -333,6 +334,10 @@
   # ── XDG base dirs ─────────────────────────────────────────────────────────
   xdg.enable = true;
 
+  # Keep the pre-26.05 Hyprland Home Manager behavior explicit even though this
+  # framework is Niri-oriented.
+  wayland.windowManager.hyprland.configType = "hyprlang";
+
   # ── Catppuccin theme engine ────────────────────────────────────────────────
   # autoEnable = true applies Catppuccin to every supported program that is
   # also enabled. Per-program overrides below disable duplicates managed by
@@ -458,19 +463,24 @@
   programs.nushell = {
     enable = true;
 
-    environmentVariables = {
-      EDITOR = "nvim";
-      VISUAL = "nvim";
-      TERMINAL = "kitty";
-      PAGER = "bat --style=plain";
-      BAT_THEME = "Catppuccin Mocha";
-      HSA_OVERRIDE_GFX_VERSION = "8.0.3";
-      MOZ_ENABLE_WAYLAND = "1";
-      QT_QPA_PLATFORM = "wayland";
-      XDG_SESSION_TYPE = "wayland";
-      XDG_CURRENT_DESKTOP = "niri";
-      CARAPACE_BRIDGES = "zsh,fish,bash";
-    };
+    environmentVariables =
+      (lib.optionalAttrs config.whycare.profiles.rocm.enable {
+        HSA_OVERRIDE_GFX_VERSION = "8.0.3";
+        LIBVA_DRIVER_NAME = "radeonsi";
+        VDPAU_DRIVER = "radeonsi";
+      })
+      // {
+        EDITOR = "nvim";
+        VISUAL = "nvim";
+        TERMINAL = "kitty";
+        PAGER = "bat --style=plain";
+        BAT_THEME = "Catppuccin Mocha";
+        MOZ_ENABLE_WAYLAND = "1";
+        QT_QPA_PLATFORM = "wayland";
+        XDG_SESSION_TYPE = "wayland";
+        XDG_CURRENT_DESKTOP = "niri";
+        CARAPACE_BRIDGES = "zsh,fish,bash";
+      };
 
     envFile.text = ''
       $env.GOPATH       = ($env.HOME | path join "go")

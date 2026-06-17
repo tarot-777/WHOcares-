@@ -1,6 +1,8 @@
 {
+  hostName ? "Aegis-Dualis",
   lib,
   pkgs,
+  userName ? "malachi",
   ...
 }: let
   kittyDesktop = pkgs.makeDesktopItem {
@@ -25,7 +27,7 @@
 in {
   imports = lib.optional (builtins.pathExists ./whonix-vms.nix) ./whonix-vms.nix;
 
-  networking.hostName = "Aegis-Dualis";
+  networking.hostName = lib.mkDefault hostName;
 
   catppuccin = {
     enable = false;
@@ -62,7 +64,7 @@ in {
     };
   };
 
-  users.users.malachi = {
+  users.users.${userName} = {
     isNormalUser = true;
     extraGroups = ["wheel" "networkmanager" "libvirtd" "kvm" "input" "video" "audio"];
   };

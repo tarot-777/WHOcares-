@@ -5,7 +5,16 @@
 # • scratchpad: popup toggle (Alt+`) + persistent window (prefix + `)
 # • custom WHOcares! hot-pink / black / red / purple status theme
 # ---------------------------------------------------------------------------
-{pkgs, ...}: let
+{
+  config,
+  flakeRoot ? null,
+  pkgs,
+  ...
+}: let
+  configuredFlakeRoot =
+    if flakeRoot == null
+    then "${config.home.homeDirectory}/WHOcares"
+    else flakeRoot;
   tmuxBin = "${pkgs.tmux}/bin/tmux";
   theme = {
     bg = "#050006";
@@ -51,7 +60,7 @@
 
   tmuxOps = pkgs.writeShellScriptBin "tmux-ops" ''
     set -euo pipefail
-    root="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-$HOME/WHOcares!}}"
+    root="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${configuredFlakeRoot}}}"
     if [[ ! -d "$root" ]]; then
       root="$HOME"
     fi

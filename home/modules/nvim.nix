@@ -16,13 +16,19 @@
 #     read-only /nix/store plugin dir and fail)
 # ---------------------------------------------------------------------------
 {
+  config,
   pkgs,
-  flakeRoot ? "/home/malachi/WHOcares!",
+  flakeRoot ? null,
   hostName ? "coffin",
   nixosHostName ? "Aegis-Dualis",
   userName ? "malachi",
   ...
-}: {
+}: let
+  configuredFlakeRoot =
+    if flakeRoot == null
+    then "${config.home.homeDirectory}/WHOcares"
+    else flakeRoot;
+in {
   programs.neovim = {
     enable = true;
     defaultEditor = true;
@@ -101,7 +107,7 @@
     initLua = ''
       vim.g.mapleader = " "
       vim.g.maplocalleader = "\\"
-      local framework_root = "${flakeRoot}"
+      local framework_root = "${configuredFlakeRoot}"
 
       -- ── Core UX ───────────────────────────────────────────────────────────
       vim.opt.number = true

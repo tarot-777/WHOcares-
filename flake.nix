@@ -110,7 +110,27 @@
 
       perSystem = {system, ...}: let
         pkgs = framework.mkPkgs system;
+        defaultRoot = self.outPath;
         defaultHomeProfile = "${settings.user.name}@${settings.defaultHomeHost}";
+        runtimeFlakeRef = ''
+          root="''${WHOCARES_FLAKE:-}"
+          if [[ -z "$root" ]]; then
+            root="''${AEGIS_FLAKE:-}"
+          fi
+          if [[ -z "$root" ]]; then
+            if [[ -f "${settings.repositoryPath}/flake.nix" ]]; then
+              root="${settings.repositoryPath}"
+            elif [[ -f "$PWD/flake.nix" ]]; then
+              root="$PWD"
+            else
+              root="${defaultRoot}"
+            fi
+          fi
+          case "$root" in
+            *:*) flake_ref="$root" ;;
+            *) flake_ref="path:$root" ;;
+          esac
+        '';
 
         mkCommand = {
           name,
@@ -137,12 +157,13 @@
             name = "aegis-info";
             runtimeInputs = [pkgs.nix];
             text = ''
-              root="''${AEGIS_FLAKE:-${settings.repositoryPath}}"
+              ${runtimeFlakeRef}
               printf '%s\n' \
                 "WHOcares! workstation framework" \
                 "Declarative shell, editor, desktop, media, and privacy workflows." \
                 "" \
                 "Root:          $root" \
+                "Flake ref:     $flake_ref" \
                 "Home profile:  ${defaultHomeProfile}" \
                 "Workstation:   ${settings.user.name}@workstation" \
                 "Laptop:        ${settings.user.name}@laptop / ${settings.user.name}@hp-laptop" \
@@ -158,10 +179,11 @@
                 "  Profiles         Optional graphics, office, virtualization, and ROCm sets" \
                 "" \
                 "Try it:" \
-                "  nix develop path:$root" \
-                "  nix run path:$root#home-build" \
-                "  nix run path:$root#home-switch" \
-                "  nix run path:$root#check"
+                "  nix develop $flake_ref" \
+                "  nix run $flake_ref#home-build" \
+                "  nix run $flake_ref#home-switch" \
+                "  nix run $flake_ref#nixos-install -- <host> root@<target-ip>" \
+                "  nix run $flake_ref#check"
             '';
           };
 
@@ -169,14 +191,14 @@
             name = "aegis-home-build";
             runtimeInputs = [pkgs.home-manager];
             text = ''
-              root="''${AEGIS_FLAKE:-${settings.repositoryPath}}"
+              ${runtimeFlakeRef}
               host="''${AEGIS_HOST:-${settings.defaultHomeHost}}"
               profile="''${AEGIS_PROFILE:-${settings.user.name}@$host}"
-              [[ -f "$root/flake.nix" ]] || {
+              [[ "$root" == *:* || -f "$root/flake.nix" ]] || {
                 echo "No flake.nix found at $root" >&2
                 exit 2
               }
-              exec home-manager build --flake "path:$root#$profile" "$@"
+              exec home-manager build --flake "$flake_ref#$profile" "$@"
             '';
           };
 
@@ -184,14 +206,14 @@
             name = "aegis-home-switch";
             runtimeInputs = [pkgs.home-manager];
             text = ''
-              root="''${AEGIS_FLAKE:-${settings.repositoryPath}}"
+              ${runtimeFlakeRef}
               host="''${AEGIS_HOST:-${settings.defaultHomeHost}}"
               profile="''${AEGIS_PROFILE:-${settings.user.name}@$host}"
-              [[ -f "$root/flake.nix" ]] || {
+              [[ "$root" == *:* || -f "$root/flake.nix" ]] || {
                 echo "No flake.nix found at $root" >&2
                 exit 2
               }
-              exec home-manager switch --flake "path:$root#$profile" "$@"
+              exec home-manager switch --flake "$flake_ref#$profile" "$@"
             '';
           };
 
@@ -199,13 +221,74 @@
             name = "aegis-nixos-switch";
             runtimeInputs = [pkgs.nixos-rebuild pkgs.sudo];
             text = ''
-              root="''${AEGIS_FLAKE:-${settings.repositoryPath}}"
+              ${runtimeFlakeRef}
               host="''${AEGIS_NIXOS_HOST:-${settings.defaultNixosHost}}"
-              [[ -f "$root/flake.nix" ]] || {
+              [[ "$root" == *:* || -f "$root/flake.nix" ]] || {
                 echo "No flake.nix found at $root" >&2
                 exit 2
               }
-              exec sudo nixos-rebuild switch --flake "path:$root#$host" "$@"
+              exec sudo nixos-rebuild switch --flake "$flake_ref#$host" "$@"
+            '';
+          };
+
+          nixos-install = mkCommand {
+            name = "aegis-nixos-install";
+            runtimeInputs = [
+              pkgs.coreutils
+              pkgs.nixos-anywhere
+              pkgs.util-linux
+            ];
+            text = ''
+              usage() {
+                cat >&2 <<'EOF'
+              Usage: nix run <flake>#nixos-install -- <host> <ssh-target> [nixos-anywhere args...]
+
+              Examples:
+                nix run .#nixos-install -- laptop root@192.0.2.20 --vm-test
+                nix run .#nixos-install -- workstation root@192.0.2.30
+
+              Safety:
+                Fresh installs require hosts/<host>/disko.nix so disk layout is explicit.
+                Set WHOCARES_INSTALL_WITHOUT_DISKO=1 only for pre-mounted/custom nixos-anywhere phases.
+              EOF
+              }
+
+              [[ $# -ge 2 ]] || {
+                usage
+                exit 2
+              }
+
+              ${runtimeFlakeRef}
+              if [[ "$root" == *:* ]]; then
+                echo "nixos-install requires a local flake path so host and disko files can be checked." >&2
+                echo "Clone or copy the framework first, then run with WHOCARES_FLAKE=/path/to/WHOcares." >&2
+                exit 2
+              fi
+
+              host="$1"
+              target="$2"
+              shift 2
+              host_dir="$root/hosts/$host"
+
+              [[ -d "$host_dir" ]] || {
+                echo "nixos-install: unknown host '$host' at $host_dir" >&2
+                exit 2
+              }
+
+              if [[ ! -f "$host_dir/disko.nix" && "''${WHOCARES_INSTALL_WITHOUT_DISKO:-0}" != "1" ]]; then
+                echo "nixos-install: refusing install without $host_dir/disko.nix" >&2
+                echo "Add an explicit disko layout first, or set WHOCARES_INSTALL_WITHOUT_DISKO=1 for custom phases." >&2
+                exit 3
+              fi
+
+              exec nice -n "''${WHOCARES_NICE:-10}" \
+                ionice -c2 -n7 \
+                nixos-anywhere \
+                  --flake "$flake_ref#$host" \
+                  --option max-jobs "''${WHOCARES_NIX_JOBS:-1}" \
+                  --option cores "''${WHOCARES_NIX_CORES:-2}" \
+                  "$@" \
+                  "$target"
             '';
           };
 
@@ -213,12 +296,12 @@
             name = "aegis-check";
             runtimeInputs = [pkgs.nix];
             text = ''
-              root="''${AEGIS_FLAKE:-${settings.repositoryPath}}"
-              [[ -f "$root/flake.nix" ]] || {
+              ${runtimeFlakeRef}
+              [[ "$root" == *:* || -f "$root/flake.nix" ]] || {
                 echo "No flake.nix found at $root" >&2
                 exit 2
               }
-              exec nix flake check --no-build "$@" "path:$root"
+              exec nix flake check --no-build "$@" "$flake_ref"
             '';
           };
 
@@ -226,12 +309,12 @@
             name = "aegis-update";
             runtimeInputs = [pkgs.nix];
             text = ''
-              root="''${AEGIS_FLAKE:-${settings.repositoryPath}}"
-              [[ -f "$root/flake.nix" ]] || {
+              ${runtimeFlakeRef}
+              [[ "$root" == *:* || -f "$root/flake.nix" ]] || {
                 echo "No flake.nix found at $root" >&2
                 exit 2
               }
-              exec nix flake update --flake "path:$root" "$@"
+              exec nix flake update --flake "$flake_ref" "$@"
             '';
           };
         };
@@ -241,6 +324,7 @@
           home-build = "Build the selected Home Manager profile";
           home-switch = "Activate the selected Home Manager profile";
           nixos-switch = "Rebuild and activate the selected NixOS host";
+          nixos-install = "Run guarded nixos-anywhere deployment for a local host";
           check = "Evaluate every flake output without building it";
           update = "Update the framework's locked flake inputs";
         };

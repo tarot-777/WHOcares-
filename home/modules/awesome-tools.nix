@@ -12,7 +12,8 @@
 # Target: bare-metal Arch + Niri + standalone Home Manager (not NixOS)
 # ---------------------------------------------------------------------------
 {
-  flakeRoot ? "/home/malachi/WHOcares!",
+  config,
+  flakeRoot ? null,
   hostName ? "coffin",
   lib,
   nixosHostName ? "Aegis-Dualis",
@@ -20,6 +21,10 @@
   userName ? "malachi",
   ...
 }: let
+  configuredFlakeRoot =
+    if flakeRoot == null
+    then "${config.home.homeDirectory}/WHOcares"
+    else flakeRoot;
   nixIndex = "${pkgs.nix-index}/bin/nix-index";
   nixLocate = "${pkgs.nix-index}/bin/nix-locate";
   jq = "${pkgs.jq}/bin/jq";
@@ -74,7 +79,7 @@
 
   hmSwitch = pkgs.writeShellScriptBin "hm" ''
     set -euo pipefail
-    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}"
+    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${configuredFlakeRoot}}}"
     host="''${WHOCARES_HOST:-''${AEGIS_HOST:-${hostName}}}"
     profile="''${WHOCARES_PROFILE:-''${AEGIS_PROFILE:-${userName}@''${host}}}"
     jobs="''${WHOCARES_NIX_JOBS:-1}"
@@ -90,7 +95,7 @@
 
   hmCheck = pkgs.writeShellScriptBin "hm-check" ''
     set -euo pipefail
-    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}"
+    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${configuredFlakeRoot}}}"
     host="''${WHOCARES_HOST:-''${AEGIS_HOST:-${hostName}}}"
     profile="''${WHOCARES_PROFILE:-''${AEGIS_PROFILE:-${userName}@''${host}}}"
     exec ${pkgs.coreutils}/bin/nice -n "''${WHOCARES_NICE:-10}" \
@@ -121,14 +126,14 @@
 
   nixUp = pkgs.writeShellScriptBin "nix-up" ''
     set -euo pipefail
-    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}"
+    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${configuredFlakeRoot}}}"
     exec ${pkgs.nix}/bin/nix flake update --flake "path:''${flake}" "$@"
   '';
 
   nixSafeUpdate = pkgs.writeShellScriptBin "nix-safe-update" ''
     set -euo pipefail
 
-    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}"
+    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${configuredFlakeRoot}}}"
     host="''${WHOCARES_HOST:-''${AEGIS_HOST:-${hostName}}}"
     profile="''${WHOCARES_PROFILE:-''${AEGIS_PROFILE:-${userName}@''${host}}}"
     jobs="''${WHOCARES_NIX_JOBS:-1}"
@@ -324,7 +329,7 @@
     target="$2"
     shift 2
 
-    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}"
+    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${configuredFlakeRoot}}}"
     host_dir="$flake/hosts/$host"
 
     [[ -d "$host_dir" ]] || {
@@ -354,14 +359,14 @@
     echo "[*] nix version"
     ${pkgs.nix}/bin/nix --version
     echo "[*] flake outputs"
-    ${pkgs.nix}/bin/nix flake show "path:''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}" --all-systems
+    ${pkgs.nix}/bin/nix flake show "path:''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${configuredFlakeRoot}}}" --all-systems
     echo "[*] home-manager build"
     hm-check
   '';
 
   nixosBuild = pkgs.writeShellScriptBin "nixos-build" ''
     set -euo pipefail
-    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}"
+    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${configuredFlakeRoot}}}"
     host="''${WHOCARES_NIXOS_HOST:-''${AEGIS_NIXOS_HOST:-${nixosHostName}}}"
     exec ${pkgs.coreutils}/bin/nice -n "''${WHOCARES_NICE:-10}" \
       ${pkgs.util-linux}/bin/ionice -c2 -n7 \
@@ -374,7 +379,7 @@
 
   nixosDry = pkgs.writeShellScriptBin "nixos-dry" ''
     set -euo pipefail
-    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}"
+    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${configuredFlakeRoot}}}"
     host="''${WHOCARES_NIXOS_HOST:-''${AEGIS_NIXOS_HOST:-${nixosHostName}}}"
     exec ${pkgs.nix}/bin/nix build \
       "path:''${flake}#nixosConfigurations.''${host}.config.system.build.toplevel" \
@@ -386,7 +391,7 @@
 
   nixosVm = pkgs.writeShellScriptBin "nixos-vm" ''
     set -euo pipefail
-    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}"
+    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${configuredFlakeRoot}}}"
     host="''${WHOCARES_NIXOS_HOST:-''${AEGIS_NIXOS_HOST:-${nixosHostName}}}"
     exec ${pkgs.coreutils}/bin/nice -n "''${WHOCARES_NICE:-10}" \
       ${pkgs.util-linux}/bin/ionice -c2 -n7 \
@@ -400,7 +405,7 @@
   mkNixosRebuild = name: action: needsSudo:
     pkgs.writeShellScriptBin name ''
       set -euo pipefail
-      flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}"
+      flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${configuredFlakeRoot}}}"
       host="''${WHOCARES_NIXOS_HOST:-''${AEGIS_NIXOS_HOST:-${nixosHostName}}}"
       exec ${lib.optionalString needsSudo "sudo "}${pkgs.nixos-rebuild}/bin/nixos-rebuild ${action} \
         --flake "path:''${flake}#''${host}" \
@@ -414,7 +419,7 @@
 
   whocaresSwitch = pkgs.writeShellScriptBin "whocares" ''
     set -euo pipefail
-    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}"
+    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${configuredFlakeRoot}}}"
     host="''${WHOCARES_NIXOS_HOST:-''${AEGIS_NIXOS_HOST:-${nixosHostName}}}"
     exec sudo ${pkgs.nixos-rebuild}/bin/nixos-rebuild switch \
       --flake "path:''${flake}#''${host}" \

@@ -27,16 +27,22 @@
     cyan = "#67e8f9";
   };
 
-  # On the current Arch host the pacman kitty build is preferred. On NixOS,
-  # use nixpkgs so the system has a complete declarative closure.
+  # Prefer a distro-managed Kitty when present, but keep the Nix package as a
+  # portable fallback for generic Linux hosts.
   systemKitty = pkgs.symlinkJoin {
     name = "kitty-system";
     paths = [
       (pkgs.writeShellScriptBin "kitty" ''
-        exec /usr/bin/kitty "$@"
+        if [[ -x /usr/bin/kitty ]]; then
+          exec /usr/bin/kitty "$@"
+        fi
+        exec ${pkgs.kitty}/bin/kitty "$@"
       '')
       (pkgs.writeShellScriptBin "kitten" ''
-        exec /usr/bin/kitten "$@"
+        if [[ -x /usr/bin/kitten ]]; then
+          exec /usr/bin/kitten "$@"
+        fi
+        exec ${pkgs.kitty}/bin/kitten "$@"
       '')
     ];
   };
@@ -89,7 +95,6 @@
     '';
   };
 in {
-
   programs.kitty = {
     enable = true;
     package = kittyPackage;

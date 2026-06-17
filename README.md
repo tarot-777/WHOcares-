@@ -7,13 +7,14 @@
 **A flake-powered Linux workstation framework for a fast terminal, a coherent
 desktop, reproducible development tools, and guarded privacy workflows.**
 
-WHOcares! currently drives the `malachi@coffin` Home Manager environment on
-generic Linux and exposes an experimental `Aegis-Dualis` NixOS host. Everything
-is pinned by `flake.lock`, composed from focused modules, and available through
-both direct flake apps and short interactive commands.
+WHOcares! currently drives the `malachi@coffin` Home Manager environment and
+ships portable `workstation`, `laptop`, and `hp-laptop` targets for new generic
+Linux or NixOS machines. Everything is pinned by `flake.lock`, composed from
+focused modules, and available through both direct flake apps and short
+interactive commands.
 
 ```sh
-nix run github:tarot-777/WHOcares-
+nix run github:tarot-777/WHOcares-#info
 ```
 
 That command prints the framework's targets, capabilities, and main entry
@@ -47,7 +48,8 @@ flowchart LR
 
 The repository is intentionally personal at the edges and reusable in the
 middle: identity, target names, and the checkout path live in `settings.nix`;
-the constructors in `lib/framework.nix` assemble the pinned modules and inputs.
+`install.sh` can generate that file for a target machine, and the constructors
+in `lib/framework.nix` assemble the pinned modules and inputs.
 
 Repository: <https://github.com/tarot-777/WHOcares->
 
@@ -63,8 +65,132 @@ Repository: <https://github.com/tarot-777/WHOcares->
 | NixOS portable hosts | `nixosConfigurations.workstation`, `laptop`, `hp-laptop` | Hardware-neutral baselines; add generated disk hardware config before install |
 
 The current checkout path is `/home/malachi/WHOcares!`, as configured in
-`settings.nix`. Forks should update that file. Runtime commands can also
-override the path with `AEGIS_FLAKE` or `WHOCARES_FLAKE`.
+`settings.nix`. New machines should run `./install.sh` so `settings.nix` is
+rewritten for that user's name, home directory, default host, and checkout path.
+Runtime commands can also override the path with `AEGIS_FLAKE` or
+`WHOCARES_FLAKE`.
+
+## Deployment Runbook
+
+### Requirements
+
+| Requirement | Generic Linux Home Manager | Existing NixOS switch | Fresh NixOS install |
+|---|---:|---:|---:|
+| `x86_64-linux` system | yes | yes | yes |
+| Nix with flakes enabled | yes | yes | yes, on the installer/controller |
+| Network or configured binary cache access | yes | yes | yes |
+| User account matching `settings.nix` | yes | yes | created by NixOS module |
+| Home Manager installed separately | no, flake app provides it | no, flake app provides it | no |
+| Root privileges | no | yes, through `sudo nixos-rebuild` | yes, SSH target must normally be `root@host` |
+| Host hardware config | no | yes, `hosts/<host>/hardware-configuration.nix` | yes, generated or supplied for target |
+| Disk layout | no | only if rebuilding disks declaratively | yes, explicit `hosts/<host>/disko.nix` |
+
+### Bootstrap Any Machine
+
+Clone or copy the repository, then generate local identity and path settings:
+
+```sh
+./install.sh --home-host workstation
+```
+
+Useful variants:
+
+```sh
+./install.sh --home-host laptop
+./install.sh --home-host hp-laptop
+./install.sh --target "$HOME/WHOcares" --user "$USER" --home "$HOME"
+./install.sh --in-place --home-host coffin --nixos-host Aegis-Dualis
+./install.sh --skip-check --home-host workstation
+```
+
+`install.sh` writes `settings.nix`, preserves the pinned `flake.lock`, excludes
+build outputs while copying, validates known host names, and runs
+`nix flake check --no-build --show-trace` unless `--skip-check` is set.
+
+Environment equivalents are available for scripts:
+
+| Variable | Meaning |
+|---|---|
+| `WHOCARES_TARGET` | Destination checkout path |
+| `WHOCARES_USER` | User name written to `settings.nix` |
+| `WHOCARES_HOME` | Home directory written to `settings.nix` |
+| `WHOCARES_EMAIL` | Email identity written to `settings.nix` |
+| `WHOCARES_HOST` | Default Home Manager host |
+| `WHOCARES_NIXOS_HOST` | Default NixOS host |
+
+### Generic Linux Activation
+
+Build first, then switch:
+
+```sh
+nix run path:$HOME/WHOcares#home-build
+nix run path:$HOME/WHOcares#home-switch
+```
+
+For this checkout on the current machine:
+
+```sh
+env WHOCARES_FLAKE=/home/malachi/WHOcares! nix run .#home-build
+env WHOCARES_FLAKE=/home/malachi/WHOcares! nix run .#home-switch
+```
+
+After activation, start a new shell or login session so shell, PATH, XDG, and
+group-sensitive desktop changes are visible. The installed wrappers are:
+
+```sh
+hm-check
+hm
+hmu
+nix-health
+whocares-targets
+```
+
+### Existing NixOS Switch
+
+1. Copy or generate `hosts/<host>/hardware-configuration.nix`.
+2. Review boot loader, filesystems, networking, users, and state version.
+3. Run a dry build before switching.
+
+```sh
+WHOCARES_NIXOS_HOST=workstation nix run path:$HOME/WHOcares#check
+WHOCARES_NIXOS_HOST=workstation nix build \
+  path:$HOME/WHOcares#nixosConfigurations.workstation.config.system.build.toplevel
+WHOCARES_NIXOS_HOST=workstation nix run path:$HOME/WHOcares#nixos-switch
+```
+
+### Fresh NixOS Install
+
+Fresh installs are intentionally guarded. Add both files first:
+
+```text
+hosts/<host>/hardware-configuration.nix
+hosts/<host>/disko.nix
+```
+
+Then install over SSH:
+
+```sh
+nix run path:$HOME/WHOcares#nixos-install -- <host> root@<target-ip>
+```
+
+The wrapper refuses to run without `hosts/<host>/disko.nix`, unless
+`WHOCARES_INSTALL_WITHOUT_DISKO=1` is set for a deliberate pre-mounted or
+custom `nixos-anywhere` phase.
+
+### Runtime Overrides
+
+| Override | Effect |
+|---|---|
+| `WHOCARES_FLAKE` / `AEGIS_FLAKE` | Runtime flake checkout path or flake ref |
+| `WHOCARES_HOST` / `AEGIS_HOST` | Home Manager host name used to form `<user>@<host>` |
+| `WHOCARES_PROFILE` / `AEGIS_PROFILE` | Full Home Manager profile override |
+| `WHOCARES_NIXOS_HOST` / `AEGIS_NIXOS_HOST` | NixOS host output |
+| `WHOCARES_NIX_JOBS` | Nix max jobs for wrappers, default `1` |
+| `WHOCARES_NIX_CORES` | Nix cores for wrappers, default `2` |
+| `WHOCARES_NICE` | CPU niceness for heavy wrapper commands, default `10` |
+| `WHOCARES_MIN_FREE_GB` | Free `/nix/store` space required by `nix-safe-update`, default `20` |
+| `WHOCARES_ALLOW_LOCAL_BUILDS` | Allow source builds during `nix-safe-update` |
+| `WHOCARES_MAX_LOCAL_BUILDS` | Small allowed count of local builds during safe update |
 
 The active `coffin` host is Arch Linux, not NixOS. Its `/etc/fstab` mounts a
 Btrfs filesystem on `ArchinstallVg-root` using `@`, `@home`, `@pkg`, and `@log`
@@ -72,23 +198,38 @@ subvolumes plus a VFAT `/boot`. The experimental NixOS output currently uses a
 temporary root placeholder and must not be used to reinstall this host until a
 real hardware and disk configuration is added.
 
-For any Linux workstation or laptop that already has Nix and Home Manager, set
-`WHOCARES_HOST=workstation`, `WHOCARES_HOST=laptop`, or
-`WHOCARES_HOST=hp-laptop` before running `hmu`. For NixOS, copy that machine's
-generated `hardware-configuration.nix` into `hosts/workstation/`,
-`hosts/laptop/`, or `hosts/hp-laptop/` before running
-`WHOCARES_NIXOS_HOST=<host> osb`, `ost`, `osboot`, or `oss`.
+For any Linux workstation or laptop that already has Nix, bootstrap the checkout
+and then build or switch the selected Home Manager profile:
+
+```sh
+./install.sh --home-host workstation
+nix run path:$HOME/WHOcares#home-build
+nix run path:$HOME/WHOcares#home-switch
+```
+
+Use `--home-host laptop` or `--home-host hp-laptop` for those profiles. After
+the first switch, the shorter `hm-check`, `hm`, and `hmu` wrappers are
+available.
+
+For an existing NixOS machine, copy that machine's generated
+`hardware-configuration.nix` into `hosts/workstation/`, `hosts/laptop/`, or
+`hosts/hp-laptop/` before running:
+
+```sh
+WHOCARES_NIXOS_HOST=<host> nix run path:$HOME/WHOcares#nixos-switch
+```
 
 For a fresh NixOS install over SSH, also add an explicit
 `hosts/<host>/disko.nix` and run:
 
 ```sh
-whocares-install <host> root@<target-ip>
+nix run path:$HOME/WHOcares#nixos-install -- <host> root@<target-ip>
 ```
 
 The install wrapper uses `nixos-anywhere`, limits Nix to the framework's
 low-resource defaults, and refuses destructive installs until the host has a
-declared disk layout.
+declared disk layout. The Home Manager profile also installs the same wrapper as
+`whocares-install`.
 
 ## Quick Start
 
@@ -100,11 +241,17 @@ nix develop
 nix flake check --no-build --show-trace
 ```
 
-Build and activate the current Home Manager target from the flake root:
+Prepare this checkout for the current machine without activating it:
 
 ```sh
-nh home build . -c malachi@coffin
-nh home switch . -c malachi@coffin
+./install.sh --in-place --home-host workstation --skip-check
+```
+
+Build and activate the configured Home Manager target:
+
+```sh
+nix run .#home-build
+nix run .#home-switch
 ```
 
 After the first switch, the shorter wrappers are available:
@@ -123,8 +270,10 @@ nix-health      # versions, outputs, and Home Manager build
 and `WHOCARES_MIN_FREE_GB=20`. It refuses local source builds unless
 `WHOCARES_ALLOW_LOCAL_BUILDS=1` is set or `WHOCARES_MAX_LOCAL_BUILDS` is raised.
 
-Use `-c` for Home Manager configurations and `-H` for NixOS hosts. Do not pass
-`.#malachi@coffin` as the flake path to `nh`.
+Use `WHOCARES_HOST` / `AEGIS_HOST` for Home Manager profile overrides and
+`WHOCARES_NIXOS_HOST` / `AEGIS_NIXOS_HOST` for NixOS host overrides. If you use
+`nh` directly, pass the flake path and `-c <user>@<host>` separately; do not pass
+`.#<user>@<host>` as the flake path.
 
 ## Zsh And Plugins
 
@@ -389,12 +538,26 @@ nix fmt
 statix check .
 deadnix .
 nix flake check --show-trace
+nix build .#checks.x86_64-linux.source-quality --no-link
+nix run .#home-build
 ```
 
 The dev shell includes `nh`, Home Manager, Alejandra, Statix, Deadnix, `nil`,
 `nixd`, and `ripgrep`. The full flake check evaluates every output and runs the
 repository's Alejandra, Statix, Deadnix, and ShellCheck quality gate. Add
 `--no-build` when only an evaluation check is needed.
+
+Before activating or deploying elsewhere, verify:
+
+```sh
+nix run .#info
+nix run .#check
+nix run .#home-build
+```
+
+Use `nix build .#checks.x86_64-linux.source-quality --no-link` when you need
+the formatter, Statix, Deadnix, and ShellCheck derivation to actually build and
+run rather than only evaluate.
 
 ## Layout
 
@@ -430,12 +593,26 @@ repository's Alejandra, Statix, Deadnix, and ShellCheck quality gate. Add
 ## Troubleshooting
 
 - `path does not contain a flake.nix`: run commands from the repository root
-  or pass `/home/malachi/WHOcares!`.
+  or set `WHOCARES_FLAKE=/path/to/WHOcares`.
 - Missing Home Manager configuration: use
-  `nh home switch . -c malachi@coffin`.
+  `nix run .#info` to list the configured profile, then set
+  `WHOCARES_HOST=workstation`, `WHOCARES_HOST=laptop`, or
+  `WHOCARES_PROFILE=<user>@<host>`.
 - Whonix domain undefined: run `wxd`, verify and extract the official archive,
   accept its bundled license, then run `wximport` on the extracted directory.
 - Permission denied for `qemu:///system`: add the user to the host's `libvirt`
   group and start a new login session.
 - First activation may build the local `nix-index` database and can take
   longer than later switches.
+- `cannot connect to socket at /nix/var/nix/daemon-socket/socket`: the caller
+  cannot reach the Nix daemon. On a normal system, ensure the daemon is running
+  and the user can access it; inside a restricted sandbox, run the command
+  outside the sandbox.
+- Plasma wallpaper errors during activation are non-fatal for this Niri-focused
+  profile. The Stylix wallpaper file is still generated; Plasma may simply not
+  be available on the current session bus.
+- Non-NixOS GPU setup warnings are informational until a Nix-built graphical
+  app needs host GPU driver integration. Run the printed `non-nixos-gpu-setup`
+  command only after reviewing it for the host distro.
+- If activation changes shell files but the current shell still behaves the old
+  way, run `exec zsh` or start a fresh login session.

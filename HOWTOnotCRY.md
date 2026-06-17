@@ -56,8 +56,78 @@ The flake also exposes direct applications:
 | `nix run .#home-build` | Build the selected Home Manager profile |
 | `nix run .#home-switch` | Activate the selected Home Manager profile |
 | `nix run .#nixos-switch` | Rebuild the selected NixOS host |
+| `nix run .#nixos-install -- <host> <ssh-target>` | Guarded `nixos-anywhere` deployment |
 | `nix run .#check` | Evaluate flake outputs without building |
 | `nix run .#update` | Update locked flake inputs |
+
+## Deployment Lifecycle
+
+WHOcares! supports three practical deployment paths.
+
+### Generic Linux Home Manager
+
+Use this path for Arch, Debian, Fedora, or another Linux system that already has
+Nix available:
+
+```sh
+./install.sh --home-host workstation
+nix run path:$HOME/WHOcares#home-build
+nix run path:$HOME/WHOcares#home-switch
+```
+
+Use `--home-host laptop` or `--home-host hp-laptop` for portable laptop
+profiles. The bootstrap script rewrites `settings.nix` for the target user,
+home directory, checkout path, default Home Manager host, and default NixOS
+host. After the first activation, `hm-check`, `hm`, `hmu`, `targets`, and
+`installos` are available from the profile.
+
+### Existing NixOS Machine
+
+Use this path when the system is already NixOS and should switch to one of the
+framework host outputs:
+
+```sh
+cp /etc/nixos/hardware-configuration.nix hosts/workstation/hardware-configuration.nix
+WHOCARES_NIXOS_HOST=workstation nix run path:$HOME/WHOcares#nixos-switch
+```
+
+Before switching, review boot loader, filesystems, host name, users, networking,
+and state version. The portable `workstation`, `laptop`, and `hp-laptop` hosts
+are hardware-neutral baselines until a real hardware file is added.
+
+### Fresh NixOS Install
+
+Fresh installs are destructive by nature, so the wrapper refuses to proceed
+until the target host has a declared disk layout:
+
+```text
+hosts/<host>/hardware-configuration.nix
+hosts/<host>/disko.nix
+```
+
+Then run:
+
+```sh
+nix run path:$HOME/WHOcares#nixos-install -- <host> root@<target-ip>
+```
+
+The installed Home Manager command `whocares-install` is the same guarded path.
+Set `WHOCARES_INSTALL_WITHOUT_DISKO=1` only for a deliberate pre-mounted or
+custom `nixos-anywhere` phase.
+
+### Runtime Overrides
+
+| Variable | Purpose |
+|---|---|
+| `WHOCARES_FLAKE` / `AEGIS_FLAKE` | Checkout path or flake ref |
+| `WHOCARES_HOST` / `AEGIS_HOST` | Home Manager host suffix |
+| `WHOCARES_PROFILE` / `AEGIS_PROFILE` | Full Home Manager profile |
+| `WHOCARES_NIXOS_HOST` / `AEGIS_NIXOS_HOST` | NixOS host output |
+| `WHOCARES_NIX_JOBS` / `WHOCARES_NIX_CORES` | Build parallelism limits |
+| `WHOCARES_NICE` | Niceness for heavy wrapper commands |
+| `WHOCARES_MIN_FREE_GB` | Minimum free `/nix/store` space for safe updates |
+| `WHOCARES_ALLOW_LOCAL_BUILDS` | Allow source builds during safe update |
+| `WHOCARES_MAX_LOCAL_BUILDS` | Numeric source-build allowance |
 
 ## A Coherent Visual Identity
 
@@ -193,8 +263,9 @@ Framework-aware tabs are built in:
 
 The matching keyboard shortcuts use `Ctrl+Shift+Alt+R`, `D`, `C`, and `S`.
 
-On the generic Arch host, WHOcares! intentionally wraps the system Kitty
-package. On NixOS it uses the pinned nixpkgs package.
+On generic Linux, WHOcares! prefers a distro-managed `/usr/bin/kitty` when it is
+available and falls back to the pinned nixpkgs Kitty package. On NixOS it uses
+the pinned nixpkgs package directly.
 
 ## tmux: Persistent Sessions and Instant Scratchpads
 
@@ -515,10 +586,15 @@ nix flake check --no-build --show-trace
 hm-check
 hm
 
+# Build, then activate through flake apps
+nix run .#home-build
+nix run .#home-switch
+
 # Maintain quality
 nix-audit
 nix-fmt
 nix-health
+nix build .#checks.x86_64-linux.source-quality --no-link
 
 # Discover what is available
 awesome
@@ -529,6 +605,15 @@ zpl
 dots
 ka
 ```
+
+Activation notes:
+
+- Start a fresh shell or run `exec zsh` after Home Manager switches shell files.
+- Plasma wallpaper apply errors are non-fatal on Niri or non-Plasma sessions.
+- Non-NixOS GPU setup warnings are informational until a Nix-built GUI app needs
+  host GPU driver integration.
+- If a Nix command cannot reach `/nix/var/nix/daemon-socket/socket`, run it
+  outside the restricted sandbox or fix Nix daemon access on that host.
 
 That is what makes WHOcares! compelling: the shell, editor, terminal,
 multiplexer, file manager, media stack, security tools, VM workflows, and Nix

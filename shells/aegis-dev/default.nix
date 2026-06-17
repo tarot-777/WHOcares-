@@ -16,7 +16,7 @@ pkgs.mkShell {
   shellHook = ''
     echo "WHOcares dev shell"
     echo "nix flake check --no-build --show-trace"
-    echo "nh home build . -c malachi@coffin"
-    echo "nh home switch . -c malachi@coffin"
+    echo "nix run .#home-build"
+    echo "nix run .#home-switch"
   '';
 }
