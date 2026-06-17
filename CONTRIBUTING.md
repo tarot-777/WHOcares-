@@ -17,6 +17,7 @@ Before submitting a change:
 ```sh
 nix fmt
 nix flake check --show-trace
+nix run .#pipeline -- validate
 nix run .#home-build
 ```
 
@@ -26,6 +27,7 @@ For deployment-sensitive changes, also verify the bootstrap and app path:
 tmpdir=$(mktemp -d)
 ./install.sh --target "$tmpdir/WHOcares" --home-host laptop --nixos-host laptop --skip-check
 env -u AEGIS_FLAKE -u WHOCARES_FLAKE nix run "path:$tmpdir/WHOcares#info"
+nix run .#pipeline -- bootstrap-check --host laptop --nixos-host laptop
 ```
 
 When you need the flake's source-quality derivation to actually run the tools,
@@ -44,6 +46,8 @@ nix build .#checks.x86_64-linux.source-quality --no-link
 - Do not add secrets, VM images, archives, or machine-specific credentials.
 - Preserve explicit verification and license acceptance in privacy workflows.
 - Keep `install.sh` portable and executable.
+- Keep `scripts/whocares-pipeline.sh` as the canonical workflow runner used by
+  both `nix run .#pipeline` and the installed `whocares-pipeline` wrapper.
 - Keep fresh NixOS installs guarded by explicit `hosts/<host>/disko.nix`.
 - Keep machine-specific hardware files under `hosts/<host>/`.
 - Prefer runtime overrides (`WHOCARES_FLAKE`, `WHOCARES_HOST`,
@@ -53,6 +57,8 @@ nix build .#checks.x86_64-linux.source-quality --no-link
 
 - Build before switching: `nix run .#home-build`.
 - Switch only when the user requested activation: `nix run .#home-switch`.
+- Pipeline switch/install workflows must require `--yes` or interactive
+  confirmation.
 - On non-NixOS hosts, warnings about GPU setup or Plasma wallpaper application
   can be informational; do not paper over real activation failures.
 - For NixOS switch paths, review boot, filesystem, user, and hardware settings

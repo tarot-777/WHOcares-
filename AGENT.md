@@ -15,17 +15,32 @@ Primary entrypoints & commands
 - nix develop .        -> enter development shell (#aegis-dev)
 - nix flake check      -> evaluate outputs and run quality gates
 - ./install.sh         -> generate machine-local settings.nix for deployment
+- nix run .#pipeline -- <workflow> -> guided input-driven workflow runner
 - nix run .#home-build / nix run .#home-switch
 - nix run .#nixos-install -- <host> <ssh-target>
 - Provided wrappers: hm, hm-check, nix-up, nix-audit, nix-fmt, nix-health
 
 Deployment runbook
 1. Inspect targets with `nix run .#info`.
-2. On a new machine, run `./install.sh --home-host workstation` or choose `laptop` / `hp-laptop`.
-3. Build before activating: `nix run .#home-build`.
-4. Activate Home Manager only when requested: `nix run .#home-switch`.
-5. For existing NixOS, add/review `hosts/<host>/hardware-configuration.nix`, build the host, then use `nix run .#nixos-switch`.
-6. For fresh NixOS, require explicit `hosts/<host>/disko.nix`, then run `nix run .#nixos-install -- <host> root@<target-ip>`.
+2. Print pipeline inputs with `nix run .#pipeline -- inputs`.
+3. Preview the selected workflow with `nix run .#pipeline -- plan home-switch` or the relevant workflow name.
+4. On a new machine, run `./install.sh --home-host workstation` or choose `laptop` / `hp-laptop`.
+5. Validate with `nix run .#pipeline -- validate`.
+6. Build before activating: `nix run .#pipeline -- home-build`.
+7. Activate Home Manager only when requested: `nix run .#pipeline -- home-switch --yes` or `nix run .#home-switch`.
+8. For existing NixOS, add/review `hosts/<host>/hardware-configuration.nix`, build with `nix run .#pipeline -- nixos-build --nixos-host <host>`, then switch only when requested.
+9. For fresh NixOS, require explicit `hosts/<host>/disko.nix`, then run `nix run .#pipeline -- nixos-install --nixos-host <host> --target root@<ip> --yes`.
+
+Pipeline workflows
+- inputs: print resolved flake, profile, host, NixOS host, resource policy, and install target.
+- plan: print the stage order for a selected workflow.
+- validate: no-build flake check plus source-quality derivation.
+- bootstrap-check: temp checkout copy plus generated settings.nix plus copied #info.
+- home-build: validate then build Home Manager.
+- home-switch: validate, build, require confirmation or --yes, then activate.
+- nixos-build: validate then build selected NixOS toplevel.
+- nixos-switch: validate, build, require confirmation or --yes, then switch.
+- nixos-install: require local checkout, disko.nix, SSH target, confirmation or --yes, then nixos-anywhere.
 
 Runtime overrides
 - WHOCARES_FLAKE / AEGIS_FLAKE: checkout path or flake ref.
@@ -41,6 +56,7 @@ Important files & layout
 - home/: Home Manager profiles and modules (llm-orchestrator.nix, zsh.nix, nvim.nix, etc.)
 - hosts/: host scaffolds for NixOS outputs
 - install.sh: portable bootstrap and settings.nix generator.
+- scripts/whocares-pipeline.sh: canonical workflow automation used by the flake app.
 - README.md: complete human deployment and operations guide.
 - HOWTOnotCRY.md: narrative architecture and survival reference.
 - SHELLS.md: command and alias reference.
@@ -56,6 +72,7 @@ Developer checks & quality gates
 - nix fmt
 - nix flake check --no-build --show-trace
 - nix build .#checks.x86_64-linux.source-quality --no-link
+- nix run .#pipeline -- bootstrap-check --host laptop --nixos-host laptop
 - nix run .#home-build
 - Dev shell: nix develop .#aegis-dev (includes nh, alejandra, statix, deadnix)
 
@@ -74,6 +91,7 @@ Quick automation checklist for agents
 - Use `llm-review`/`llm-patch` flow for AI-assisted patching
 - If Home Manager activation reports Plasma wallpaper errors on a non-Plasma or Niri session, treat them as non-fatal.
 - If a Nix command cannot access `/nix/var/nix/daemon-socket/socket` inside a sandbox, rerun outside the sandbox with user approval.
+- Never pass `--yes` to `home-switch`, `nixos-switch`, or `nixos-install` unless the user explicitly requested activation or deployment.
 
 Contact / repository
 - Origin: https://github.com/tarot-777/WHOcares-

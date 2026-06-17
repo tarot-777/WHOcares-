@@ -192,44 +192,82 @@ custom `nixos-anywhere` phase.
 | `WHOCARES_ALLOW_LOCAL_BUILDS` | Allow source builds during `nix-safe-update` |
 | `WHOCARES_MAX_LOCAL_BUILDS` | Small allowed count of local builds during safe update |
 
+## Pipeline Automation
+
+The canonical workflow runner is available before activation as a flake app and
+after activation as an installed command:
+
+```sh
+nix run .#pipeline -- inputs
+nix run .#pipeline -- plan home-switch
+whocares-pipeline inputs
+pipeline plan nixos-install
+```
+
+Every workflow has an input section, ordered stages, and explicit destructive
+gates. Activation and install workflows require `--yes` or an interactive
+confirmation.
+
+| Workflow | Inputs | Stages | Output |
+|---|---|---|---|
+| `inputs` | optional overrides | Print resolved user, profile, host, flake, resources, install target | Human-readable worksheet |
+| `plan` | workflow name and overrides | Print inputs plus stage order | Dry operator plan |
+| `validate` | flake ref, system | `nix flake check --no-build --show-trace`; source-quality build | Evaluation and lint gate |
+| `bootstrap-check` | local checkout, host names | temp copy; `install.sh`; copied `#info` run | Proof bootstrap works off-machine |
+| `home-build` | profile, flake, resource limits | validate; Home Manager build | Built profile, no activation |
+| `home-switch` | home-build inputs, `--yes` or prompt | validate; build; confirmation; switch | Active Home Manager generation |
+| `nixos-build` | NixOS host, flake | validate; build host toplevel | NixOS closure, no activation |
+| `nixos-switch` | NixOS host, sudo, `--yes` or prompt | validate; build; confirmation; switch | Active NixOS generation |
+| `nixos-install` | local checkout, host, SSH target, `disko.nix`, `--yes` or prompt | guard checks; confirmation; `nixos-anywhere` | Fresh target install |
+
+Common runs:
+
+```sh
+# Show every input the runner will use.
+nix run .#pipeline -- inputs
+
+# Full validation gate, including source-quality derivation.
+nix run .#pipeline -- validate
+
+# Preview the exact stages before a switch.
+nix run .#pipeline -- plan home-switch
+
+# Build current Home Manager profile without switching.
+nix run .#pipeline -- home-build
+
+# Activate Home Manager after build and validation.
+nix run .#pipeline -- home-switch --yes
+
+# Validate that a copied checkout can bootstrap itself.
+nix run .#pipeline -- bootstrap-check --host laptop --nixos-host laptop
+
+# Build a portable NixOS host without switching.
+nix run .#pipeline -- nixos-build --nixos-host workstation
+
+# Fresh install, still guarded by hosts/<host>/disko.nix.
+nix run .#pipeline -- nixos-install --nixos-host laptop --target root@192.0.2.20 --yes
+```
+
+Pipeline options:
+
+| Option | Purpose |
+|---|---|
+| `--flake PATH_OR_REF` | Use a different checkout or flake ref |
+| `--host HOST` | Select the Home Manager host suffix |
+| `--profile USER@HOST` | Select the exact Home Manager profile |
+| `--nixos-host HOST` | Select the NixOS host output |
+| `--system SYSTEM` | Select the flake check system |
+| `--target SSH_TARGET` | Set the `nixos-anywhere` SSH target |
+| `--skip-source-quality` | Skip the source-quality derivation |
+| `--skip-eval` | Skip no-build flake evaluation |
+| `--dry-run` | Print commands without executing them |
+| `--yes` | Permit activation/install stages non-interactively |
+
 The active `coffin` host is Arch Linux, not NixOS. Its `/etc/fstab` mounts a
 Btrfs filesystem on `ArchinstallVg-root` using `@`, `@home`, `@pkg`, and `@log`
 subvolumes plus a VFAT `/boot`. The experimental NixOS output currently uses a
 temporary root placeholder and must not be used to reinstall this host until a
 real hardware and disk configuration is added.
-
-For any Linux workstation or laptop that already has Nix, bootstrap the checkout
-and then build or switch the selected Home Manager profile:
-
-```sh
-./install.sh --home-host workstation
-nix run path:$HOME/WHOcares#home-build
-nix run path:$HOME/WHOcares#home-switch
-```
-
-Use `--home-host laptop` or `--home-host hp-laptop` for those profiles. After
-the first switch, the shorter `hm-check`, `hm`, and `hmu` wrappers are
-available.
-
-For an existing NixOS machine, copy that machine's generated
-`hardware-configuration.nix` into `hosts/workstation/`, `hosts/laptop/`, or
-`hosts/hp-laptop/` before running:
-
-```sh
-WHOCARES_NIXOS_HOST=<host> nix run path:$HOME/WHOcares#nixos-switch
-```
-
-For a fresh NixOS install over SSH, also add an explicit
-`hosts/<host>/disko.nix` and run:
-
-```sh
-nix run path:$HOME/WHOcares#nixos-install -- <host> root@<target-ip>
-```
-
-The install wrapper uses `nixos-anywhere`, limits Nix to the framework's
-low-resource defaults, and refuses destructive installs until the host has a
-declared disk layout. The Home Manager profile also installs the same wrapper as
-`whocares-install`.
 
 ## Quick Start
 

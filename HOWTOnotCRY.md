@@ -53,6 +53,8 @@ The flake also exposes direct applications:
 | Command | Purpose |
 |---|---|
 | `nix run .` | Show framework targets and capabilities |
+| `nix run .#pipeline -- inputs` | Print the workflow input worksheet |
+| `nix run .#pipeline -- validate` | Run the full validation pipeline |
 | `nix run .#home-build` | Build the selected Home Manager profile |
 | `nix run .#home-switch` | Activate the selected Home Manager profile |
 | `nix run .#nixos-switch` | Rebuild the selected NixOS host |
@@ -64,6 +66,19 @@ The flake also exposes direct applications:
 
 WHOcares! supports three practical deployment paths.
 
+The pipeline runner is the safest way to move between those paths because it
+prints resolved inputs and keeps activation or install stages behind explicit
+confirmation:
+
+```sh
+nix run .#pipeline -- inputs
+nix run .#pipeline -- plan home-switch
+nix run .#pipeline -- validate
+```
+
+The same runner is installed as `whocares-pipeline` and aliased to `pipeline`
+after Home Manager activation.
+
 ### Generic Linux Home Manager
 
 Use this path for Arch, Debian, Fedora, or another Linux system that already has
@@ -73,6 +88,13 @@ Nix available:
 ./install.sh --home-host workstation
 nix run path:$HOME/WHOcares#home-build
 nix run path:$HOME/WHOcares#home-switch
+```
+
+The automated equivalent is:
+
+```sh
+nix run path:$HOME/WHOcares#pipeline -- home-build
+nix run path:$HOME/WHOcares#pipeline -- home-switch --yes
 ```
 
 Use `--home-host laptop` or `--home-host hp-laptop` for portable laptop
@@ -89,6 +111,13 @@ framework host outputs:
 ```sh
 cp /etc/nixos/hardware-configuration.nix hosts/workstation/hardware-configuration.nix
 WHOCARES_NIXOS_HOST=workstation nix run path:$HOME/WHOcares#nixos-switch
+```
+
+The automated equivalent is:
+
+```sh
+nix run path:$HOME/WHOcares#pipeline -- nixos-build --nixos-host workstation
+nix run path:$HOME/WHOcares#pipeline -- nixos-switch --nixos-host workstation --yes
 ```
 
 Before switching, review boot loader, filesystems, host name, users, networking,
@@ -111,6 +140,12 @@ Then run:
 nix run path:$HOME/WHOcares#nixos-install -- <host> root@<target-ip>
 ```
 
+The automated equivalent is:
+
+```sh
+nix run path:$HOME/WHOcares#pipeline -- nixos-install --nixos-host <host> --target root@<target-ip> --yes
+```
+
 The installed Home Manager command `whocares-install` is the same guarded path.
 Set `WHOCARES_INSTALL_WITHOUT_DISKO=1` only for a deliberate pre-mounted or
 custom `nixos-anywhere` phase.
@@ -128,6 +163,20 @@ custom `nixos-anywhere` phase.
 | `WHOCARES_MIN_FREE_GB` | Minimum free `/nix/store` space for safe updates |
 | `WHOCARES_ALLOW_LOCAL_BUILDS` | Allow source builds during safe update |
 | `WHOCARES_MAX_LOCAL_BUILDS` | Numeric source-build allowance |
+
+Pipeline workflow details:
+
+| Workflow | What it automates | Confirmation |
+|---|---|---|
+| `inputs` | Print all resolved input values | no |
+| `plan` | Print stage order for a workflow | no |
+| `validate` | Evaluate flake and build source-quality check | no |
+| `bootstrap-check` | Copy to temp checkout and verify generated settings | no |
+| `home-build` | Validate, then build Home Manager | no |
+| `home-switch` | Validate, build, then activate Home Manager | yes or `--yes` |
+| `nixos-build` | Validate, then build selected NixOS host | no |
+| `nixos-switch` | Validate, build, then switch selected NixOS host | yes or `--yes` |
+| `nixos-install` | Validate local guarded install inputs, then run nixos-anywhere | yes or `--yes` |
 
 ## A Coherent Visual Identity
 

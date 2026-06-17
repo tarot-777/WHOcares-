@@ -152,6 +152,24 @@
           '';
         };
 
+        pipelineText =
+          builtins.replaceStrings
+          [
+            "__WHOCARES_DEFAULT_FLAKE__"
+            "__WHOCARES_DEFAULT_USER__"
+            "__WHOCARES_DEFAULT_HOME_HOST__"
+            "__WHOCARES_DEFAULT_NIXOS_HOST__"
+            "__WHOCARES_DEFAULT_SYSTEM__"
+          ]
+          [
+            settings.repositoryPath
+            settings.user.name
+            settings.defaultHomeHost
+            settings.defaultNixosHost
+            settings.defaultSystem
+          ]
+          (builtins.readFile ./scripts/whocares-pipeline.sh);
+
         commands = rec {
           info = mkCommand {
             name = "aegis-info";
@@ -180,11 +198,28 @@
                 "" \
                 "Try it:" \
                 "  nix develop $flake_ref" \
+                "  nix run $flake_ref#pipeline -- inputs" \
+                "  nix run $flake_ref#pipeline -- validate" \
                 "  nix run $flake_ref#home-build" \
                 "  nix run $flake_ref#home-switch" \
                 "  nix run $flake_ref#nixos-install -- <host> root@<target-ip>" \
                 "  nix run $flake_ref#check"
             '';
+          };
+
+          pipeline = mkCommand {
+            name = "whocares-pipeline";
+            runtimeInputs = [
+              pkgs.coreutils
+              pkgs.git
+              pkgs.home-manager
+              pkgs.nix
+              pkgs.nixos-anywhere
+              pkgs.nixos-rebuild
+              pkgs.sudo
+              pkgs.util-linux
+            ];
+            text = pipelineText;
           };
 
           home-build = mkCommand {
@@ -321,6 +356,7 @@
 
         commandDescriptions = {
           info = "Show WHOcares! capabilities, targets, and entry points";
+          pipeline = "Run guided WHOcares bootstrap, validation, activation, and deployment workflows";
           home-build = "Build the selected Home Manager profile";
           home-switch = "Activate the selected Home Manager profile";
           nixos-switch = "Rebuild and activate the selected NixOS host";
@@ -383,7 +419,7 @@
               alejandra --check .
               statix check .
               deadnix --fail .
-              shellcheck install.sh repair-from-documents-tree.sh
+              shellcheck install.sh repair-from-documents-tree.sh scripts/whocares-pipeline.sh
 
               touch "$out"
             '';

@@ -281,22 +281,27 @@
       WHOCARES_HOST=workstation hmu
       WHOCARES_HOST=laptop hmu
       WHOCARES_HOST=hp-laptop hmu
+      pipeline home-build
+      pipeline home-switch --yes
 
     NixOS build targets:
       WHOCARES_NIXOS_HOST=workstation osb
       WHOCARES_NIXOS_HOST=laptop osb
       WHOCARES_NIXOS_HOST=hp-laptop osb
       WHOCARES_NIXOS_HOST=Aegis-Dualis osb
+      pipeline nixos-build --nixos-host workstation
 
     NixOS activation targets:
       WHOCARES_NIXOS_HOST=<host> ost
       WHOCARES_NIXOS_HOST=<host> osboot
       WHOCARES_NIXOS_HOST=<host> oss
+      pipeline nixos-switch --nixos-host <host> --yes
 
     Fresh NixOS install over SSH:
       nixos-generate-config --show-hardware-config > hosts/<host>/hardware-configuration.nix
       add an explicit hosts/<host>/disko.nix
       whocares-install <host> root@<target-ip>
+      pipeline nixos-install --nixos-host <host> --target root@<target-ip> --yes
 
     Before installing NixOS on real hardware:
       verify hardware-configuration.nix and disko.nix match that machine.
@@ -352,6 +357,16 @@
         --option cores "''${WHOCARES_NIX_CORES:-2}" \
         "$@" \
         "$target"
+  '';
+
+  whocaresPipeline = pkgs.writeShellScriptBin "whocares-pipeline" ''
+    set -euo pipefail
+    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${configuredFlakeRoot}}}"
+    case "$flake" in
+      *:*) flake_ref="$flake" ;;
+      *) flake_ref="path:$flake" ;;
+    esac
+    exec ${pkgs.nix}/bin/nix run "$flake_ref#pipeline" -- "$@"
   '';
 
   nixHealth = pkgs.writeShellScriptBin "nix-health" ''
@@ -483,7 +498,7 @@
              nix-index nix-locate nix-du nix-melt dix nix-update nurl optnix angrr \
              nix-output-monitor nix-diff nix-init vulnix nix-fast-build colmena deploy-rs \
              nix-pkg-find nix-store-du nix-lock nix-dix nix-review nix-vm nix-ctr \
-             nix-safe-update whocares-targets whocares-install whocares aegis nixos-build nixos-test nixos-boot nixos-dry nixos-vm; do
+             nix-safe-update whocares-targets whocares-pipeline whocares-install whocares aegis nixos-build nixos-test nixos-boot nixos-dry nixos-vm; do
       check "$t"
     done
     echo ""
@@ -520,7 +535,7 @@
     ═══════════════════════════════════════════════
 
     Nix quality (awesome-nix CLI)
-      hm hm-check nix-safe-update whocares-targets whocares-install nix-audit nix-health nix-fmt nix-fix nix-gc nix-up
+      hm hm-check nix-safe-update whocares-targets whocares-pipeline whocares-install nix-audit nix-health nix-fmt nix-fix nix-gc nix-up
       alejandra statix deadnix nixd nil nix-tree nix-diff nvd nom nh
       manix nix-init nix-search-tv comma cachix devenv
       nix-index nix-locate nix-du nix-melt dix nix-update nix-prefetch
@@ -528,7 +543,7 @@
       nix-output-monitor nix-diff vulnix nix-fast-build colmena deploy-rs
       nix-pkg-find nix-store-du nix-lock nix-dix nix-pkg-update
       nix-nurl nix-opt nix-review cached-nix-shell
-      whocares whocares-install aegis nixos-build nixos-test nixos-boot nixos-dry nixos-vm
+      whocares whocares-pipeline whocares-install aegis nixos-build nixos-test nixos-boot nixos-dry nixos-vm
       disko nixos-anywhere
       nix-ld angrr
 
@@ -581,6 +596,7 @@ in {
     nixUp
     nixSafeUpdate
     whocaresTargets
+    whocaresPipeline
     whocaresInstall
     nixHealth
     nixosBuild
@@ -724,6 +740,7 @@ in {
     | `nix-review pr-<n>` | awesome-nix | Test nixpkgs PR locally |
     | `nix-safe-update` | WHOcares | Update, evaluate, refuse source builds by default, diff, then switch |
     | `whocares-targets` | WHOcares | Show portable Home Manager and NixOS deploy commands |
+    | `whocares-pipeline <workflow>` | WHOcares | Guided bootstrap, validation, activation, and deploy pipelines |
     | `whocares-install <host> <ssh-target>` | nixos-anywhere | Guarded fresh NixOS deployment |
     | `angrr` | awesome-nix | Prune stale GC auto-roots |
 
@@ -781,6 +798,7 @@ in {
     awesome = "awesome-list";
     tcheck = "tools-check";
     targets = "whocares-targets";
+    pipeline = "whocares-pipeline";
     installos = "whocares-install";
 
     # awesome-nix · Arch hybrid
@@ -814,6 +832,8 @@ in {
   programs.nushell.extraConfig = ''
     alias awesome   = awesome-list
     alias tcheck    = tools-check
+    alias targets   = whocares-targets
+    alias pipeline  = whocares-pipeline
     alias nfind     = nix-pkg-find
     alias ndu       = nix-store-du
     alias nlock     = nix-lock

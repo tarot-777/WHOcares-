@@ -12,6 +12,9 @@ Activation basics
 - `hm` is the installed low-priority Home Manager switch wrapper.
 - `hmu` / `nix-safe-update` updates inputs, checks, builds, diffs, then
   switches only after the earlier stages pass.
+- `pipeline` / `whocares-pipeline` runs full input-driven workflows for
+  validation, bootstrap checks, Home Manager activation, NixOS builds, and
+  guarded installs.
 - `exec zsh` reloads the active shell after activation.
 
 Framework target selection
@@ -52,6 +55,8 @@ Nix & framework helpers
 - osvm / nixos-vm — build the selected NixOS VM
 - installos / whocares-install — guarded nixos-anywhere install wrapper
 - targets / whocares-targets — show supported Home Manager and NixOS targets
+- pipeline / whocares-pipeline — guided workflow runner with input worksheet,
+  stage plan, validation, build, activation, and deployment modes
 - nfind — search nixpkgs and nix-locate together
 - nopt — search NixOS and Home Manager options
 - nlock — browse `flake.lock`
@@ -92,6 +97,8 @@ Tips for agents and maintainers
   before proposing commits or PRs.
 - For activation changes, run `nix run .#home-build` before
   `nix run .#home-switch`.
+- For full workflow automation, start with `pipeline inputs`, then
+  `pipeline validate`, then the specific build/switch/install workflow.
 - For NixOS installs, do not run `nixos-install` or `whocares-install` until
   `hosts/<host>/hardware-configuration.nix` and `hosts/<host>/disko.nix` have
   been reviewed for that machine.
