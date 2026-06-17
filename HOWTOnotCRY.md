@@ -41,8 +41,11 @@ The main targets are:
 | Target | Purpose |
 |---|---|
 | `homeConfigurations."malachi@coffin"` | Active generic-Linux workstation |
+| `homeConfigurations."malachi@workstation"` | Portable Home Manager target for workstation installs |
+| `homeConfigurations."malachi@laptop"` / `homeConfigurations."malachi@hp-laptop"` | Portable Home Manager targets for mobile installs |
 | `homeConfigurations."malachi@Aegis-Dualis"` | Home profile evaluated for NixOS |
 | `nixosConfigurations.Aegis-Dualis` | Experimental NixOS host scaffold |
+| `nixosConfigurations.workstation`, `laptop`, `hp-laptop` | NixOS baselines for portable deployments |
 | `devShells.aegis-dev` | Repository development environment |
 
 The flake also exposes direct applications:
@@ -119,6 +122,14 @@ nested project directories:
 - `ndev` / `nix-develop` enters the nearest development shell;
 - `home-build` builds the nearest Home Manager flake;
 - `home-switch` activates it;
+- `hmu` / `nix-safe-update` updates inputs, checks evaluation, refuses local
+  source builds by default, builds, shows an `nvd` diff, then switches only
+  after those steps pass. Override with `WHOCARES_ALLOW_LOCAL_BUILDS=1` or
+  `WHOCARES_MAX_LOCAL_BUILDS=N`;
+- `whocares-targets` lists workstation, laptop, and HP laptop deployment names;
+- `whocares-install` wraps `nixos-anywhere` for guarded fresh NixOS installs
+  once `hosts/<host>/hardware-configuration.nix` and `hosts/<host>/disko.nix`
+  are explicit;
 - `nix-run` runs a package without installing it;
 - `nix-tmp` opens a temporary shell with arbitrary packages.
 

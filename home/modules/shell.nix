@@ -17,8 +17,13 @@ with lib; let
     };
     display = {
       separator = "  ";
-      color = "magenta";
-      keyWidth = 12;
+      color = {
+        keys = "magenta";
+        title = "magenta";
+      };
+      key = {
+        width = 12;
+      };
     };
     modules = [
       "title"
@@ -56,6 +61,8 @@ with lib; let
     First commands
       guide, aliases     show this guide
       daily, ndaily      Nix/Home Manager/NixOS daily workflow guide
+      targets            show portable Home Manager and NixOS deploy targets
+      installos          guarded nixos-anywhere install wrapper
       zpl                show Nix-managed Zsh plugin inventory
       awesome, tcheck    tool inventory and PATH audit
 
@@ -73,7 +80,8 @@ with lib; let
       nhealth            flake outputs plus Home Manager build
       hmb, hmc           Home Manager build
       hms                Home Manager switch
-      hmu                update flake inputs, then Home Manager switch
+      hmu                safely update inputs, build, diff, then Home Manager switch
+      nix-safe-update    guarded update path used by hmu
       nup, ngc           update inputs, collect old generations
       nfind, nopt        package and option search
 
@@ -85,6 +93,7 @@ with lib; let
       oss, os            nixos-rebuild switch
       osdry              nixos-rebuild dry-build
       osvm               nixos-rebuild build-vm
+      installos          nixos-anywhere install wrapper; requires disko.nix
 
     System logs
       bootlog            warning-or-worse logs from current boot
@@ -158,7 +167,7 @@ with lib; let
       "  ''${hotpink}guide''${reset}   -> aliases, functions, Kitty, tmux quick reference" \
       "  ''${hotpink}daily''${reset}   -> Nix, Home Manager, and NixOS shortcut guide" \
       "  ''${purple}hmb''${reset}     -> Home Manager build        ''${purple}hms''${reset}    -> Home Manager switch" \
-      "  ''${purple}nfc''${reset}     -> flake check, no build     ''${purple}hmu''${reset}    -> update inputs + switch" \
+      "  ''${purple}nfc''${reset}     -> flake check, no build     ''${purple}hmu''${reset}    -> safe update + switch" \
       "  ''${red}osb''${reset}     -> NixOS build               ''${red}ost''${reset}    -> NixOS test" \
       "  ''${red}oss''${reset}     -> NixOS switch              ''${red}osboot''${reset} -> NixOS boot entry" \
       "  ''${hotpink}kdash''${reset}   -> Kitty ops dashboard       ''${hotpink}td''${reset}     -> tmux ops dashboard" \

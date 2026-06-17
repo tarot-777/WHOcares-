@@ -2,6 +2,7 @@ result
 result-*
 .direnv/
 .envrc.local
+.flake.lock.safe-update.*
 *.qcow2
 *.qcow2.*
 *.libvirt.xz

@@ -56,8 +56,11 @@ Repository: <https://github.com/tarot-777/WHOcares->
 | Target | Output | Status |
 |---|---|---|
 | Generic Linux | `homeConfigurations."malachi@coffin"` | Default and actively switched |
+| Generic Linux workstation | `homeConfigurations."malachi@workstation"` | Portable Home Manager target for workstation installs |
+| Generic Linux laptop | `homeConfigurations."malachi@laptop"` / `homeConfigurations."malachi@hp-laptop"` | Portable Home Manager targets for mobile installs |
 | NixOS Home Manager | `homeConfigurations."malachi@Aegis-Dualis"` | Evaluated profile |
 | NixOS host | `nixosConfigurations.Aegis-Dualis` | Host scaffold; adapt boot and filesystem settings before installation |
+| NixOS portable hosts | `nixosConfigurations.workstation`, `laptop`, `hp-laptop` | Hardware-neutral baselines; add generated disk hardware config before install |
 
 The current checkout path is `/home/malachi/WHOcares!`, as configured in
 `settings.nix`. Forks should update that file. Runtime commands can also
@@ -68,6 +71,24 @@ Btrfs filesystem on `ArchinstallVg-root` using `@`, `@home`, `@pkg`, and `@log`
 subvolumes plus a VFAT `/boot`. The experimental NixOS output currently uses a
 temporary root placeholder and must not be used to reinstall this host until a
 real hardware and disk configuration is added.
+
+For any Linux workstation or laptop that already has Nix and Home Manager, set
+`WHOCARES_HOST=workstation`, `WHOCARES_HOST=laptop`, or
+`WHOCARES_HOST=hp-laptop` before running `hmu`. For NixOS, copy that machine's
+generated `hardware-configuration.nix` into `hosts/workstation/`,
+`hosts/laptop/`, or `hosts/hp-laptop/` before running
+`WHOCARES_NIXOS_HOST=<host> osb`, `ost`, `osboot`, or `oss`.
+
+For a fresh NixOS install over SSH, also add an explicit
+`hosts/<host>/disko.nix` and run:
+
+```sh
+whocares-install <host> root@<target-ip>
+```
+
+The install wrapper uses `nixos-anywhere`, limits Nix to the framework's
+low-resource defaults, and refuses destructive installs until the host has a
+declared disk layout.
 
 ## Quick Start
 
@@ -89,13 +110,18 @@ nh home switch . -c malachi@coffin
 After the first switch, the shorter wrappers are available:
 
 ```sh
-hm-check       # low-priority Home Manager build
-hm             # low-priority Home Manager switch
-nix-audit      # deadnix + statix
-nix-fmt        # format Nix files with alejandra
-nix-up         # update flake.lock
-nix-health     # versions, outputs, and Home Manager build
+hm-check        # low-priority Home Manager build
+hm              # low-priority Home Manager switch
+nix-safe-update # update, check, refuse source builds by default, diff, switch
+nix-audit       # deadnix + statix
+nix-fmt         # format Nix files with alejandra
+nix-up          # update flake.lock
+nix-health      # versions, outputs, and Home Manager build
 ```
+
+`nix-safe-update` defaults to `WHOCARES_NIX_JOBS=1`, `WHOCARES_NIX_CORES=2`,
+and `WHOCARES_MIN_FREE_GB=20`. It refuses local source builds unless
+`WHOCARES_ALLOW_LOCAL_BUILDS=1` is set or `WHOCARES_MAX_LOCAL_BUILDS` is raised.
 
 Use `-c` for Home Manager configurations and `-H` for NixOS hosts. Do not pass
 `.#malachi@coffin` as the flake path to `nh`.

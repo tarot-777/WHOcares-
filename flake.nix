@@ -144,7 +144,10 @@
                 "" \
                 "Root:          $root" \
                 "Home profile:  ${defaultHomeProfile}" \
+                "Workstation:   ${settings.user.name}@workstation" \
+                "Laptop:        ${settings.user.name}@laptop / ${settings.user.name}@hp-laptop" \
                 "NixOS host:    ${settings.defaultNixosHost}" \
+                "Portable OS:   workstation / laptop / hp-laptop" \
                 "" \
                 "Capabilities:" \
                 "  Home Manager     Zsh, Nushell, Neovim, Kitty, tmux, Git, and CLI tools" \

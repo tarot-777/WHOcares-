@@ -60,7 +60,8 @@ in {
 
   # Preserve the user's existing DMS settings and plugins.
   programs.dank-material-shell.managePluginSettings = false;
-  stylix.targets.dank-material-shell.enable = lib.mkForce false;
+  # Allow Stylix to theme DankMaterialShell so the DMS bar and shell match the UI
+  stylix.targets.dank-material-shell.enable = lib.mkForce true;
   stylix.targets.waybar.enable = lib.mkForce false;
   programs.waybar.enable = lib.mkForce false;
 

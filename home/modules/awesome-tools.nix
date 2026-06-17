@@ -125,6 +125,230 @@
     exec ${pkgs.nix}/bin/nix flake update --flake "path:''${flake}" "$@"
   '';
 
+  nixSafeUpdate = pkgs.writeShellScriptBin "nix-safe-update" ''
+    set -euo pipefail
+
+    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}"
+    host="''${WHOCARES_HOST:-''${AEGIS_HOST:-${hostName}}}"
+    profile="''${WHOCARES_PROFILE:-''${AEGIS_PROFILE:-${userName}@''${host}}}"
+    jobs="''${WHOCARES_NIX_JOBS:-1}"
+    cores="''${WHOCARES_NIX_CORES:-2}"
+    min_free_gb="''${WHOCARES_MIN_FREE_GB:-20}"
+    max_local_builds="''${WHOCARES_MAX_LOCAL_BUILDS:-0}"
+    allow_local_builds="''${WHOCARES_ALLOW_LOCAL_BUILDS:-0}"
+    current_profile="''${WHOCARES_HOME_PROFILE_LINK:-$HOME/.local/state/nix/profiles/home-manager}"
+    home_installable="path:''${flake}#homeConfigurations.\"''${profile}\".activationPackage"
+    build_link="$flake/result-home-manager"
+    lock="$flake/flake.lock"
+    lock_backup=""
+    dry_run_log=""
+
+    [[ -f "$flake/flake.nix" ]] || {
+      echo "nix-safe-update: no flake.nix found at $flake" >&2
+      exit 2
+    }
+
+    case "$min_free_gb" in
+      ""|*[!0-9]*)
+        echo "nix-safe-update: WHOCARES_MIN_FREE_GB must be an integer number of GiB" >&2
+        exit 2
+        ;;
+    esac
+
+    case "$max_local_builds" in
+      ""|*[!0-9]*)
+        echo "nix-safe-update: WHOCARES_MAX_LOCAL_BUILDS must be an integer" >&2
+        exit 2
+        ;;
+    esac
+
+    check_free_space() {
+      local available_kib required_kib
+      available_kib="$(${pkgs.coreutils}/bin/df -Pk /nix/store | ${pkgs.gawk}/bin/awk 'NR == 2 { print $4 }')"
+      required_kib=$((min_free_gb * 1024 * 1024))
+      if (( available_kib < required_kib )); then
+        echo "nix-safe-update: refusing to continue with less than ''${min_free_gb}GiB free on /nix/store" >&2
+        ${pkgs.coreutils}/bin/df -h /nix/store >&2
+        exit 3
+      fi
+    }
+
+    restore_lock() {
+      if [[ -n "$lock_backup" && -f "$lock_backup" ]]; then
+        ${pkgs.coreutils}/bin/cp "$lock_backup" "$lock"
+      fi
+    }
+
+    finish() {
+      local rc=$?
+      if (( rc != 0 )); then
+        echo "[!] nix-safe-update failed; restoring the previous flake.lock" >&2
+        restore_lock
+      fi
+      [[ -z "$lock_backup" ]] || ${pkgs.coreutils}/bin/rm -f "$lock_backup"
+      [[ -z "$dry_run_log" ]] || ${pkgs.coreutils}/bin/rm -f "$dry_run_log"
+      exit "$rc"
+    }
+    trap finish EXIT
+
+    check_free_space
+
+    if [[ -f "$lock" ]]; then
+      lock_backup="$(${pkgs.coreutils}/bin/mktemp "$flake/.flake.lock.safe-update.XXXXXX")"
+      ${pkgs.coreutils}/bin/cp "$lock" "$lock_backup"
+    fi
+
+    echo "[1/6] updating flake inputs for $flake"
+    ${pkgs.nix}/bin/nix flake update --flake "path:''${flake}" "$@"
+
+    echo "[2/6] evaluating flake without building"
+    ${pkgs.nix}/bin/nix flake check --no-build --show-trace "path:''${flake}"
+
+    echo "[3/6] checking whether $profile would build from source"
+    dry_run_log="$(${pkgs.coreutils}/bin/mktemp "''${TMPDIR:-/tmp}/nix-safe-update-dry-run.XXXXXX")"
+    if ! ${pkgs.nix}/bin/nix build --dry-run --no-link "$home_installable" >"$dry_run_log" 2>&1; then
+      ${pkgs.coreutils}/bin/cat "$dry_run_log" >&2
+      exit 4
+    fi
+    local_build_count="$(${pkgs.gawk}/bin/awk '
+      /derivations? will be built:/ { in_build = 1; next }
+      /paths? will be fetched/ { in_build = 0 }
+      in_build && /^[[:space:]]*\/nix\/store\/.*\.drv$/ { count++ }
+      END { print count + 0 }
+    ' "$dry_run_log")"
+    if (( local_build_count > max_local_builds )) && [[ "$allow_local_builds" != "1" ]]; then
+      echo "nix-safe-update: refusing $local_build_count local source builds (limit: $max_local_builds)" >&2
+      echo "Set WHOCARES_ALLOW_LOCAL_BUILDS=1 to override, or WHOCARES_MAX_LOCAL_BUILDS=N to allow a small count." >&2
+      ${pkgs.gawk}/bin/awk '
+        /derivations? will be built:/ { in_build = 1; next }
+        /paths? will be fetched/ { in_build = 0 }
+        in_build && /^[[:space:]]*\/nix\/store\/.*\.drv$/ {
+          shown++
+          if (shown <= 25) print "  " $1
+        }
+        END {
+          if (shown > 25) print "  ... " shown - 25 " more"
+        }
+      ' "$dry_run_log" >&2
+      exit 5
+    fi
+    echo "nix-safe-update: local source builds allowed by policy: $local_build_count"
+
+    echo "[4/6] building Home Manager profile $profile with jobs=$jobs cores=$cores"
+    ${pkgs.coreutils}/bin/rm -f "$build_link"
+    ${pkgs.coreutils}/bin/nice -n "''${WHOCARES_NICE:-10}" \
+      ${pkgs.util-linux}/bin/ionice -c2 -n7 \
+      ${pkgs.nh}/bin/nh home build "$flake" \
+        --configuration "$profile" \
+        --max-jobs "$jobs" \
+        --cores "$cores" \
+        --out-link "$build_link"
+
+    echo "[5/6] package diff against current Home Manager generation"
+    if [[ -e "$current_profile" && -e "$build_link" ]]; then
+      ${pkgs.nvd}/bin/nvd diff "$current_profile" "$build_link" || true
+    else
+      echo "nix-safe-update: skipped diff; missing $current_profile or $build_link" >&2
+    fi
+
+    check_free_space
+
+    echo "[6/6] switching Home Manager profile $profile"
+    ${pkgs.coreutils}/bin/nice -n "''${WHOCARES_NICE:-10}" \
+      ${pkgs.util-linux}/bin/ionice -c2 -n7 \
+      ${pkgs.nh}/bin/nh home switch "$flake" \
+        --configuration "$profile" \
+        --max-jobs "$jobs" \
+        --cores "$cores"
+
+    trap - EXIT
+    [[ -z "$lock_backup" ]] || ${pkgs.coreutils}/bin/rm -f "$lock_backup"
+    [[ -z "$dry_run_log" ]] || ${pkgs.coreutils}/bin/rm -f "$dry_run_log"
+    echo "[done] safe update completed"
+  '';
+
+  whocaresTargets = pkgs.writeShellScriptBin "whocares-targets" ''
+    cat <<'EOF'
+    WHOcares! deploy targets
+
+    Generic Linux / Home Manager:
+      WHOCARES_HOST=coffin hmu
+      WHOCARES_HOST=workstation hmu
+      WHOCARES_HOST=laptop hmu
+      WHOCARES_HOST=hp-laptop hmu
+
+    NixOS build targets:
+      WHOCARES_NIXOS_HOST=workstation osb
+      WHOCARES_NIXOS_HOST=laptop osb
+      WHOCARES_NIXOS_HOST=hp-laptop osb
+      WHOCARES_NIXOS_HOST=Aegis-Dualis osb
+
+    NixOS activation targets:
+      WHOCARES_NIXOS_HOST=<host> ost
+      WHOCARES_NIXOS_HOST=<host> osboot
+      WHOCARES_NIXOS_HOST=<host> oss
+
+    Fresh NixOS install over SSH:
+      nixos-generate-config --show-hardware-config > hosts/<host>/hardware-configuration.nix
+      add an explicit hosts/<host>/disko.nix
+      whocares-install <host> root@<target-ip>
+
+    Before installing NixOS on real hardware:
+      verify hardware-configuration.nix and disko.nix match that machine.
+    EOF
+  '';
+
+  whocaresInstall = pkgs.writeShellScriptBin "whocares-install" ''
+    set -euo pipefail
+
+    usage() {
+      cat >&2 <<'EOF'
+    Usage: whocares-install <host> <ssh-target> [nixos-anywhere args...]
+
+    Examples:
+      whocares-install laptop root@192.0.2.20 --generate-hardware-config nixos-generate-config hosts/laptop/hardware-configuration.nix
+      whocares-install hp-laptop root@192.0.2.21 --vm-test
+
+    Safety:
+      Real installs require hosts/<host>/disko.nix so disk layout is explicit.
+      Set WHOCARES_INSTALL_WITHOUT_DISKO=1 only for pre-mounted/custom nixos-anywhere phases.
+    EOF
+    }
+
+    [[ $# -ge 2 ]] || {
+      usage
+      exit 2
+    }
+
+    host="$1"
+    target="$2"
+    shift 2
+
+    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}"
+    host_dir="$flake/hosts/$host"
+
+    [[ -d "$host_dir" ]] || {
+      echo "whocares-install: unknown host '$host' at $host_dir" >&2
+      ${whocaresTargets}/bin/whocares-targets >&2
+      exit 2
+    }
+
+    if [[ ! -f "$host_dir/disko.nix" && "''${WHOCARES_INSTALL_WITHOUT_DISKO:-0}" != "1" ]]; then
+      echo "whocares-install: refusing install without $host_dir/disko.nix" >&2
+      echo "Add an explicit disko layout first, or set WHOCARES_INSTALL_WITHOUT_DISKO=1 for custom phases." >&2
+      exit 3
+    fi
+
+    exec ${pkgs.coreutils}/bin/nice -n "''${WHOCARES_NICE:-10}" \
+      ${pkgs.util-linux}/bin/ionice -c2 -n7 \
+      ${pkgs.nixos-anywhere}/bin/nixos-anywhere \
+        --flake "path:''${flake}#''${host}" \
+        --option max-jobs "''${WHOCARES_NIX_JOBS:-1}" \
+        --option cores "''${WHOCARES_NIX_CORES:-2}" \
+        "$@" \
+        "$target"
+  '';
+
   nixHealth = pkgs.writeShellScriptBin "nix-health" ''
     set -euo pipefail
     echo "[*] nix version"
@@ -135,25 +359,68 @@
     hm-check
   '';
 
+  nixosBuild = pkgs.writeShellScriptBin "nixos-build" ''
+    set -euo pipefail
+    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}"
+    host="''${WHOCARES_NIXOS_HOST:-''${AEGIS_NIXOS_HOST:-${nixosHostName}}}"
+    exec ${pkgs.coreutils}/bin/nice -n "''${WHOCARES_NICE:-10}" \
+      ${pkgs.util-linux}/bin/ionice -c2 -n7 \
+      ${pkgs.nix}/bin/nix build \
+        "path:''${flake}#nixosConfigurations.''${host}.config.system.build.toplevel" \
+        --max-jobs "''${WHOCARES_NIX_JOBS:-1}" \
+        --cores "''${WHOCARES_NIX_CORES:-2}" \
+        "$@"
+  '';
+
+  nixosDry = pkgs.writeShellScriptBin "nixos-dry" ''
+    set -euo pipefail
+    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}"
+    host="''${WHOCARES_NIXOS_HOST:-''${AEGIS_NIXOS_HOST:-${nixosHostName}}}"
+    exec ${pkgs.nix}/bin/nix build \
+      "path:''${flake}#nixosConfigurations.''${host}.config.system.build.toplevel" \
+      --dry-run \
+      --max-jobs "''${WHOCARES_NIX_JOBS:-1}" \
+      --cores "''${WHOCARES_NIX_CORES:-2}" \
+      "$@"
+  '';
+
+  nixosVm = pkgs.writeShellScriptBin "nixos-vm" ''
+    set -euo pipefail
+    flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}"
+    host="''${WHOCARES_NIXOS_HOST:-''${AEGIS_NIXOS_HOST:-${nixosHostName}}}"
+    exec ${pkgs.coreutils}/bin/nice -n "''${WHOCARES_NICE:-10}" \
+      ${pkgs.util-linux}/bin/ionice -c2 -n7 \
+      ${pkgs.nix}/bin/nix build \
+        "path:''${flake}#nixosConfigurations.''${host}.config.system.build.vm" \
+        --max-jobs "''${WHOCARES_NIX_JOBS:-1}" \
+        --cores "''${WHOCARES_NIX_CORES:-2}" \
+        "$@"
+  '';
+
   mkNixosRebuild = name: action: needsSudo:
     pkgs.writeShellScriptBin name ''
       set -euo pipefail
       flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}"
       host="''${WHOCARES_NIXOS_HOST:-''${AEGIS_NIXOS_HOST:-${nixosHostName}}}"
-      exec ${lib.optionalString needsSudo "sudo "}${pkgs.nixos-rebuild}/bin/nixos-rebuild ${action} --flake "path:''${flake}#''${host}" "$@"
+      exec ${lib.optionalString needsSudo "sudo "}${pkgs.nixos-rebuild}/bin/nixos-rebuild ${action} \
+        --flake "path:''${flake}#''${host}" \
+        --max-jobs "''${WHOCARES_NIX_JOBS:-1}" \
+        --cores "''${WHOCARES_NIX_CORES:-2}" \
+        "$@"
     '';
 
-  nixosBuild = mkNixosRebuild "nixos-build" "build" false;
   nixosTest = mkNixosRebuild "nixos-test" "test" true;
   nixosBoot = mkNixosRebuild "nixos-boot" "boot" true;
-  nixosDry = mkNixosRebuild "nixos-dry" "dry-build" false;
-  nixosVm = mkNixosRebuild "nixos-vm" "build-vm" false;
 
   whocaresSwitch = pkgs.writeShellScriptBin "whocares" ''
     set -euo pipefail
     flake="''${WHOCARES_FLAKE:-''${AEGIS_FLAKE:-${flakeRoot}}}"
     host="''${WHOCARES_NIXOS_HOST:-''${AEGIS_NIXOS_HOST:-${nixosHostName}}}"
-    exec sudo ${pkgs.nixos-rebuild}/bin/nixos-rebuild switch --flake "path:''${flake}#''${host}" "$@"
+    exec sudo ${pkgs.nixos-rebuild}/bin/nixos-rebuild switch \
+      --flake "path:''${flake}#''${host}" \
+      --max-jobs "''${WHOCARES_NIX_JOBS:-1}" \
+      --cores "''${WHOCARES_NIX_CORES:-2}" \
+      "$@"
   '';
 
   aegisSwitch = pkgs.writeShellScriptBin "aegis" ''
@@ -211,7 +478,7 @@
              nix-index nix-locate nix-du nix-melt dix nix-update nurl optnix angrr \
              nix-output-monitor nix-diff nix-init vulnix nix-fast-build colmena deploy-rs \
              nix-pkg-find nix-store-du nix-lock nix-dix nix-review nix-vm nix-ctr \
-             whocares aegis nixos-build nixos-test nixos-boot nixos-dry nixos-vm; do
+             nix-safe-update whocares-targets whocares-install whocares aegis nixos-build nixos-test nixos-boot nixos-dry nixos-vm; do
       check "$t"
     done
     echo ""
@@ -248,7 +515,7 @@
     ═══════════════════════════════════════════════
 
     Nix quality (awesome-nix CLI)
-      hm hm-check nix-audit nix-health nix-fmt nix-fix nix-gc nix-up
+      hm hm-check nix-safe-update whocares-targets whocares-install nix-audit nix-health nix-fmt nix-fix nix-gc nix-up
       alejandra statix deadnix nixd nil nix-tree nix-diff nvd nom nh
       manix nix-init nix-search-tv comma cachix devenv
       nix-index nix-locate nix-du nix-melt dix nix-update nix-prefetch
@@ -256,7 +523,8 @@
       nix-output-monitor nix-diff vulnix nix-fast-build colmena deploy-rs
       nix-pkg-find nix-store-du nix-lock nix-dix nix-pkg-update
       nix-nurl nix-opt nix-review cached-nix-shell
-      whocares aegis nixos-build nixos-test nixos-boot nixos-dry nixos-vm
+      whocares whocares-install aegis nixos-build nixos-test nixos-boot nixos-dry nixos-vm
+      disko nixos-anywhere
       nix-ld angrr
 
     Virtualisation (awesome-nix + awesome-linux-containers)
@@ -306,6 +574,9 @@ in {
     nixFmt
     nixGc
     nixUp
+    nixSafeUpdate
+    whocaresTargets
+    whocaresInstall
     nixHealth
     nixosBuild
     nixosTest
@@ -319,6 +590,9 @@ in {
     pkgs.nh
     pkgs.nix-output-monitor
     pkgs.nix-diff
+    pkgs.nvd
+    pkgs.nixos-anywhere
+    pkgs.disko
     pkgs.nix-init
     pkgs.manix
     pkgs.vulnix
@@ -443,6 +717,9 @@ in {
     | `nix-pkg-update` | awesome-nix | Bump package version/hash |
     | `nix-nurl <url>` | awesome-nix | Generate fetcher snippet (nurl) |
     | `nix-review pr-<n>` | awesome-nix | Test nixpkgs PR locally |
+    | `nix-safe-update` | WHOcares | Update, evaluate, refuse source builds by default, diff, then switch |
+    | `whocares-targets` | WHOcares | Show portable Home Manager and NixOS deploy commands |
+    | `whocares-install <host> <ssh-target>` | nixos-anywhere | Guarded fresh NixOS deployment |
     | `angrr` | awesome-nix | Prune stale GC auto-roots |
 
     ## Logic and workflow
@@ -498,6 +775,8 @@ in {
     cns = "cached-nix-shell";
     awesome = "awesome-list";
     tcheck = "tools-check";
+    targets = "whocares-targets";
+    installos = "whocares-install";
 
     # awesome-nix · Arch hybrid
     nixld = "nix-ld";

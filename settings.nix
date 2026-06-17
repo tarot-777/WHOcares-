@@ -19,6 +19,21 @@
       genericLinux = true;
     };
 
+    workstation = {
+      system = "x86_64-linux";
+      genericLinux = true;
+    };
+
+    laptop = {
+      system = "x86_64-linux";
+      genericLinux = true;
+    };
+
+    hp-laptop = {
+      system = "x86_64-linux";
+      genericLinux = true;
+    };
+
     "Aegis-Dualis" = {
       system = "x86_64-linux";
       genericLinux = false;
@@ -29,6 +44,21 @@
     "Aegis-Dualis" = {
       system = "x86_64-linux";
       modules = [./hosts/aegis-dualis];
+    };
+
+    workstation = {
+      system = "x86_64-linux";
+      modules = [./hosts/workstation];
+    };
+
+    laptop = {
+      system = "x86_64-linux";
+      modules = [./hosts/laptop];
+    };
+
+    hp-laptop = {
+      system = "x86_64-linux";
+      modules = [./hosts/hp-laptop];
     };
   };
 }

@@ -28,8 +28,8 @@ in {
   networking.hostName = "Aegis-Dualis";
 
   catppuccin = {
-    enable = true;
-    autoEnable = true;
+    enable = false;
+    autoEnable = false;
   };
   system.stateVersion = "25.05";
 

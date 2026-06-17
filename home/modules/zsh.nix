@@ -164,7 +164,7 @@
       hmb = "home-build";
       hmc = "hm-check";
       hms = "home-switch";
-      hmu = "nix-up && home-switch";
+      hmu = "nix-safe-update";
       os = "whocares";
       oss = "whocares";
       osb = "nixos-build";
@@ -177,7 +177,7 @@
       ndaily = "nix-daily";
       zpl = "zsh-plugins";
       zpr = "exec zsh";
-      zpu = "nix-up && hm";
+      zpu = "nix-safe-update";
 
       # ── Systemd / logs ───────────────────────────────────────────────────
       sc = "systemctl";
@@ -204,7 +204,7 @@
       wpaste = "wl-paste";
 
       # Nix / HM command wrappers come from awesome-tools.nix:
-      # hm, hm-check, nix-health, nix-gc, nix-up, nix-audit, nix-fmt, aegis
+      # hm, hm-check, nix-safe-update, nix-health, nix-gc, nix-up, nix-audit, nix-fmt, aegis
 
       # Media aliases → media.nix (play, vid, shuffle, queue)
 
@@ -304,7 +304,7 @@
             '  zpl              show this inventory' \
             '  zpr              reload Zsh' \
             '  daily            show Nix, Home Manager, and NixOS shortcuts' \
-            '  zpu              update flake inputs and run Home Manager switch'
+            '  zpu              safely update inputs, build, diff, and switch Home Manager'
         }
 
           # Distrobox has no shell-init hook. Completion is supplied by
@@ -389,7 +389,7 @@
             'Home Manager' \
             '  hmb      build nearest Home Manager flake' \
             '  hms      switch nearest Home Manager flake' \
-            '  hmu      update flake inputs, then switch Home Manager' \
+            '  hmu      safely update inputs, build, diff, then switch Home Manager' \
             '  hm-check low-priority configured Home Manager build' \
             "" \
             'NixOS host' \
@@ -411,7 +411,12 @@
             '  nopt     search NixOS/Home Manager options' \
             '  nlock    browse flake.lock' \
             '  nup      update flake inputs' \
-            '  ngc      collect old Nix generations'
+            '  ngc      collect old Nix generations' \
+            "" \
+            'Portable targets' \
+            '  WHOCARES_HOST=laptop hmu           safe Home Manager update on Linux' \
+            '  WHOCARES_HOST=hp-laptop hmu        HP laptop alias' \
+            '  WHOCARES_NIXOS_HOST=laptop osb     build the NixOS laptop host'
         }
 
         # History substring search keeps Up/Down useful after partial typing.

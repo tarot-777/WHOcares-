@@ -47,7 +47,7 @@
     # Enable defensive security features (no deep tools by default)
     security = {
       enable = true;
-      deep = { enable = false; };
+      deep = {enable = false;};
     };
 
     llmOrchestrator = {
@@ -337,8 +337,11 @@
   # autoEnable = true applies Catppuccin to every supported program that is
   # also enabled. Per-program overrides below disable duplicates managed by
   # Stylix to avoid conflicting theme injections.
-  # Catppuccin theming block removed to avoid missing flake/module during evaluation
-
+  # Keep Catppuccin disabled to avoid file/provider conflicts; Stylix handles theming
+  catppuccin = {
+    enable = false;
+    autoEnable = false;
+  };
 
   # ── Stylix theming engine ──────────────────────────────────────────────────
   stylix = {
@@ -577,6 +580,12 @@
         }
       }
 
+      def hmu [...args: string] {
+        with-env { WHOCARES_FLAKE: (nix-root) } {
+          ^nix-safe-update ...$args
+        }
+      }
+
       # Passive OSINT pipeline — outputs to $WHYCARE_HOME/recon/<domain>
       def osint-passive [domain: string] {
         let out = ($env.WHYCARE_HOME | path join "recon" $domain)
@@ -652,7 +661,7 @@
       alias wpaste = wl-paste
       alias guide  = whocares-guide
       alias aliases = whocares-guide
-      # hm / nix-gc / nix-up → awesome-tools.nix wrappers
+      # hm / nix-safe-update / nix-gc / nix-up → awesome-tools.nix wrappers
       alias dk     = podman
       alias dkc    = podman-compose
       alias dkps   = podman ps -a
@@ -683,7 +692,7 @@
         "$nix_shell$python$rust$golang$nodejs"
         "$cmd_duration$line_break$character"
       ];
-      palette = "whocares_neon";
+      palette = lib.mkForce "whocares_neon";
       palettes.whocares_neon = {
         black = "050006";
         bg = "09000d";
