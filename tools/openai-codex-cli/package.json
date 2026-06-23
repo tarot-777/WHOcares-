@@ -1,0 +1,13 @@
+{
+  "name": "openai-codex-cli",
+  "version": "0.1.0",
+  "description": "Minimal Node CLI to call OpenAI Codex (completions)",
+  "bin": {
+    "codex": "bin/codex.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["openai", "codex", "cli"],
+  "license": "MIT"
+}

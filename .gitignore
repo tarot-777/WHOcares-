@@ -1,0 +1,24 @@
+result
+result-*
+.direnv/
+.envrc.local
+.flake.lock.safe-update.*
+*.qcow2
+*.qcow2.*
+*.libvirt.xz
+*.libvirt.xz.*
+
+# Local runtime state and secrets; keep the repository declarative.
+.env
+.env.*
+!.env.example
+*.hm-backup
+*.log
+*.tmp
+*.bak
+.config/DankMaterialShell/
+.config/niri/dms/
+.config/mozilla/
+.mozilla/
+.local/state/
+.local/share/whocares/llm-orchestrator/
